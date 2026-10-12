@@ -1,0 +1,64 @@
+name: Host regression gates
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: host-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  host:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: phase_1/cli -> ../../target/host
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y fonts-dejavu-core
+      - name: Framework pytest regressions
+        run: |
+          python -m pip install pytest
+          python -m pytest phase_1/zkite_py/tests -q
+        env:
+          PYTHONPATH: phase_1/zkite_py/src
+      - name: Python, CLI, bundler and native data structures
+        run: python scripts/check_host.py
+      - name: Native layout and embedded Python bridge
+        if: runner.os == 'Linux'
+        run: |
+          cargo test --locked --manifest-path phase_3/renderer/Cargo.toml
+          cargo test --locked --manifest-path phase_3/pybridge/Cargo.toml
+        env:
+          PYO3_PYTHON: python
+          CARGO_BUILD_JOBS: '2'
+  webview:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: phase_1/webruntime/test/package-lock.json
+      - run: sudo apt-get update && sudo apt-get install -y fonts-dejavu-core
+      - run: phase_1/webruntime/scripts/stage_fonts.sh
+      - run: npm ci && npx playwright install --with-deps chromium && npm test
+        working-directory: phase_1/webruntime/test

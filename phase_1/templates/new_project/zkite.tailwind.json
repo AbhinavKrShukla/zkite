@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json.schemastore.org/tailwindcss.json",
+  "tailwindCSS.experimental.classRegex": [
+    [
+      "(?:Column|Row|Grid|Stack|ScrollView|Text|Button|Icon|TextField|Image|Switch|Slider)\\(\\s*[\\\"']([^\\\"']*)[\\\"']",
+      ""
+    ]
+  ],
+  "tailwindCSS.includeLanguages": {
+    "python": "html"
+  }
+}

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Phase 0 spike 2 manifest.
+
+  Deliberately free of resource *qualifiers* (no values-es/, no drawable-xhdpi/): pack's
+  compatibility table lists those as unsupported, and plan1.md §7's preferred mitigation
+  is to sidestep rather than fork. A framework that owns its own rendering does not need
+  them. See the spike README.
+
+  android:extractNativeLibs="true" so the installer unpacks lib/<abi>/ for us. Play
+  prefers "false" (uncompressed, page-aligned libs read straight from the APK); pack
+  currently deflates every entry except resources.arsc, so "false" needs an upstream
+  change to the zip writer. Tracked in the README as a known gap, not a blocker: the
+  spike's question is whether a pack-built APK installs and runs.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.zkite.phase0"
+    android:versionCode="1"
+    android:versionName="0.1.0">
+
+    <uses-sdk
+        android:minSdkVersion="24"
+        android:targetSdkVersion="34" />
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@drawable/icon"
+        android:extractNativeLibs="true"
+        android:hasCode="true">
+
+        <activity
+            android:name="dev.zkite.phase0.ZKiteActivity"
+            android:label="@string/app_name"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Dev Shell manifest (../../PLAN.md M4). Same resource-qualifier-free approach as
+  phase_0/spike2 — see that spike's README for why that's a sidestep, not a gap.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.zkite.devshell"
+    android:versionCode="1"
+    android:versionName="0.1.0">
+
+    <uses-sdk
+        android:minSdkVersion="26"
+        android:targetSdkVersion="36" />
+
+    <!-- The reload socket dials 127.0.0.1 (via `adb reverse`) — Android's permission
+         check applies to socket creation regardless of destination, loopback included. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- android:enableOnBackInvokedCallback="true" is deliberately NOT set — see the
+         gpu_harness manifest and phase_2/bundler's manifest_gen for the reason
+         (vendor/pack's AXML compiler rejects the attribute). Back reaches zkite_py's
+         navigation stack through ZKiteActivity.onBackPressed() regardless
+         (phase_3/PLAN.md §16). -->
+    <application
+        android:label="@string/app_name"
+        android:icon="@drawable/icon"
+        android:extractNativeLibs="true"
+        android:hasCode="true">
+
+        <!-- android:configChanges omitted: zkite-pack's AXML compiler (a phase_0 spike,
+             built for Wear OS watch faces) doesn't resolve configChanges' flag-string
+             constants ("For input string: orientation|screenSize|keyboardHidden") to
+             the platform's integer enum. Not essential for this milestone — without
+             it, Android just restarts the Activity on rotation, which re-runs boot()
+             (slower, not incorrect). Worth an upstream pack fix alongside the
+             extra_files PR phase_0 already flagged, not a blocker here. -->
+        <activity
+            android:name="dev.zkite.devshell.ZKiteActivity"
+            android:label="@string/app_name"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

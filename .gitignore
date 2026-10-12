@@ -1,0 +1,96 @@
+# Root .gitignore for the whole kite-v1 monorepo (phase_0/phase_1/phase_2).
+#
+# Each phase also carries its own .gitignore with phase-specific reasoning
+# (phase_0/.gitignore, phase_1/.gitignore, phase_2/.gitignore) — this file is the
+# repo-wide safety net plus the big-ticket regenerable directories, so the full
+# picture of "what's not committed and why" is visible from one place. Nothing
+# here conflicts with those files; the deliberately-*committed* exceptions
+# (phase_1/webruntime/vendor/*.js, phase_2/vendor/pip/pip.pyz, spike3's
+# palette.json) are all outside the patterns below on purpose.
+
+# ---------------------------------------------------------------- build output
+# Rust: every crate's target/ (spike1/2/3, cli, devshell, bundler, appshell, and
+# the vendored pack/ clone's own target/). Rebuilds from Cargo.lock, which *is*
+# committed.
+target/
+
+# Java/Android build scratch (javac .class + d8 intermediates) and the prebuilt
+# .so/.dex/.apk "release pipeline" artifacts every phase's scripts/build*.sh
+# produces — regenerated locally, never the thing a clone should ship with.
+build/
+artifacts/
+
+# Python bytecode/caches.
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# webruntime's test tooling — package.json declares the pin, npm install recreates.
+node_modules/
+
+# ------------------------------------------------------- downloaded, not authored
+# ~1.2 GB: official python.org Android prefixes + the google/pack clone.
+# phase_0/scripts/fetch_python.sh recreates all of it.
+/phase_0/vendor/
+
+# Release-pipeline-only tools phase_2/bundler needs to *build* (protoc for
+# pack-aab's codegen) or to *verify* its output with (bundletool — the same
+# validator Play's backend runs). Neither is invoked by the shipped `zkite` binary.
+/phase_2/vendor/protoc/
+/phase_2/vendor/bundletool/
+
+# Same bucket, phase 3: androidx.core's classes.jar is only needed on javac's
+# *compile* classpath (ZKiteSurfaceView implements a vendor/gametextinput interface
+# that references androidx.core.graphics.Insets) — never dexed or shipped.
+# phase_3/gpu_harness/scripts/fetch_androidx_core.sh recreates it.
+/phase_3/gpu_harness/vendor/androidx-core/
+
+# Emulator/system-image scratch and stray downloaded archives.
+*.tar
+*.tar.gz
+*.zip
+!/phase_0/spike3_twcore/palette.json
+
+# ------------------------------------------------------------- disposable state
+# `zkite new` scaffolds used to exercise `zkite build`/`zkite dev` by hand — includes
+# generated keystores (zkite-release.pem/.p12) and dist/ output. Regenerate with
+# `zkite new <name>`, never commit a project directory's own build output.
+/phase_2/fixtures/*/
+
+# ------------------------------------------------------------------- OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+.env
+
+# ------------------------------------------------------------------- fonts
+# phase_1/webruntime/fonts/ — the three typeface families both backends render
+# with, materialised by phase_1/webruntime/scripts/stage_fonts.sh. ~2.8 MB of
+# regenerable binaries copied from the host (or from ZKITE_FONT_* overrides); same
+# "point at it, do not commit it" treatment as phase_2/vendor/protoc. See that
+# script for why one shared directory rather than one per backend.
+phase_1/webruntime/fonts/
+
+# Locally assembled, installable release candidates.
+/release/
+/publish-dist/
+/.publish-venv/
+
+# Contributor environments, private keys, and local application output.
+.venv/
+venv/
+.zkite/
+.env.*
+!.env.example
+*.pem
+*.p12
+*.jks
+*.keystore
+*.apk
+*.aab
+*.whl
+dist/

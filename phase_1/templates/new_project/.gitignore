@@ -1,0 +1,51 @@
+# ZKite local state (including the development signing key) and build output.
+/.zkite/
+/dist/
+/build/
+*.apk
+*.aab
+*.apks
+
+# Private signing keys. Back up release keys securely outside Git.
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# Python bytecode, virtual environments, and packaging metadata.
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Test, type-checker, and linter caches.
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Local environment settings; keep shareable example files in Git.
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.sample
+!.env.template
+
+# Logs, editor scratch files, and OS metadata.
+*.log
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini

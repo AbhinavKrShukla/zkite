@@ -1,0 +1,19 @@
+[package]
+name = "zkite_renderer"
+version = "0.0.1"
+edition = "2021"
+description = "Phase 3: the shared, backend-agnostic layout + text-measurement engine. twcore class strings -> taffy layout (with real text measurement via parley) -> a flat list of positioned, painted nodes. No vello_cpu or vello_hybrid dependency on purpose — see ../PLAN.md §3/§4: paint is the one part that legitimately differs per backend, layout must not."
+
+[dependencies]
+twcore = { path = "../../phase_0/spike3_twcore" }
+taffy = { version = "0.9", default-features = false, features = ["flexbox", "grid", "block_layout", "std", "taffy_tree"] }
+parley = { version = "0.11", default-features = false, features = ["std"] }
+kurbo = "0.13"
+# The paint *vocabulary* both vello backends re-export (`vello_common::paint::PaintType`
+# is `peniko::Brush<Image, Gradient>`), with no rasteriser in it — the same category as
+# kurbo above, and admitted for the same reason: see src/gradient.rs's module doc for why
+# handing back a finished brush is what keeps four paint consumers from each getting the
+# interpolation space wrong. Must stay version-compatible with `vello_cpu`/`vello_hybrid`;
+# a skew is a type error at the call site, not a silent divergence.
+peniko = "0.6"
+rustc-hash = "2"

@@ -1,0 +1,93 @@
+<!doctype html>
+<!--
+  Manual test harness: open this file directly in any desktop browser (no server, no
+  Android, no Python needed). It loads the real vendored Tailwind JIT + morphdom +
+  zkite-runtime.js in this same document (an iframe pointed at ../index.html hits
+  Chromium's file:// cross-origin restrictions, which don't apply to how a real
+  WebView loads a single top-level document — so this is the more representative
+  setup anyway, not a compromise), mocks window.ZKiteNative so button taps are visible
+  instead of erroring, and lets you drive re-renders by hand to eyeball morphdom +
+  Tailwind JIT behavior — the same thing test/e2e.mjs checks automatically, but
+  interactively.
+-->
+<html>
+<head>
+<meta charset="utf-8" />
+<title>zkite webruntime harness</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  body { font-family: system-ui, sans-serif; display: flex; height: 100vh; }
+  #controls { width: 320px; flex: none; padding: 16px; box-sizing: border-box; overflow: auto; background: #111; color: #eee; }
+  #controls button { display: block; width: 100%; margin-bottom: 8px; padding: 8px; }
+  #log { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12px; background: #000; color: #6f6; padding: 8px; height: 200px; overflow: auto; }
+  #phone { flex: 1; overflow: auto; }
+  #zkite-root { min-height: 100%; }
+  input[type="checkbox"] {
+    width: 44px; height: 26px; border-radius: 9999px; background: #3f3f46;
+    position: relative; cursor: pointer; transition: background-color .15s ease;
+  }
+  input[type="checkbox"]::before {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 22px; height: 22px;
+    border-radius: 9999px; background: #fff; transition: transform .15s ease;
+  }
+  input[type="checkbox"]:checked { background: #615fff; }
+  input[type="checkbox"]:checked::before { transform: translateX(18px); }
+</style>
+<script src="../vendor/tailwind-browser.js"></script>
+<script src="../vendor/morphdom.min.js"></script>
+</head>
+<body>
+<div id="controls">
+  <h3>zkite webruntime harness</h3>
+  <button id="btn-render0">Render: counter = 0</button>
+  <button id="btn-render1">Render: counter = 1 (simulated tap)</button>
+  <button id="btn-error">Render: error overlay</button>
+  <p>Type in the phone-panel input, then hit a render button — text and focus should survive (that's the morphdom + zkite-runtime.js fix, see ../zkite-runtime.js).</p>
+  <div id="log"></div>
+</div>
+<div id="phone">
+  <div id="zkite-root"></div>
+</div>
+
+<script src="../zkite-runtime.js"></script>
+<script>
+  const log = document.getElementById("log");
+  function logLine(s) {
+    log.textContent += s + "\n";
+    log.scrollTop = log.scrollHeight;
+  }
+
+  window.ZKiteNative = {
+    ready: () => logLine("[bridge] ZKiteNative.ready()"),
+    dispatch: (id, event, payload) => {
+      logLine(`[bridge] dispatch(id=${id}, event=${event}, payload=${JSON.stringify(payload)})`);
+      if (id === "r.2" && event === "tap") {
+        render(counterHtml("1"));
+      }
+    },
+  };
+
+  function counterHtml(n) {
+    return `<div id="r" class="flex flex-col flex-1 items-center justify-center gap-6 bg-slate-950 p-6">
+      <input id="probe" class="appearance-none outline-none border border-white/20 text-white px-3 py-2 rounded" type="text" placeholder="type here, then click a render button">
+      <span id="r.1" class="text-7xl font-bold text-white tabular-nums">${n}</span>
+      <button id="r.2" class="appearance-none px-6 py-3 rounded-2xl bg-indigo-500 active:bg-indigo-600 text-white font-medium" type="button" data-zkite-on="tap">Increment</button>
+    </div>`;
+  }
+
+  function render(h) {
+    window.ZKiteRuntime.applyHtml(h);
+  }
+
+  document.getElementById("btn-render0").onclick = () => render(counterHtml("0"));
+  document.getElementById("btn-render1").onclick = () => render(counterHtml("1"));
+  document.getElementById("btn-error").onclick = () =>
+    render(
+      counterHtml("0") +
+        '<div id="__zkite_error_overlay" style="position:fixed;inset:0;background:rgba(20,0,0,.92);color:#ff8080;font-family:monospace;white-space:pre-wrap;padding:16px;">Traceback (most recent call last):\n  File "main.py", line 9, in view\n    1 / 0\nZeroDivisionError: division by zero</div>'
+    );
+
+  render(counterHtml("0"));
+</script>
+</body>
+</html>

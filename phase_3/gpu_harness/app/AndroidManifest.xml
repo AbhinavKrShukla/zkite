@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  GPU render harness manifest (../../PLAN.md §4). Same resource-qualifier-free
+  approach as phase_0/spike2 and phase_1/devshell — see phase_0's README for why
+  that's a sidestep, not a gap.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.zkite.gpuharness"
+    android:versionCode="1"
+    android:versionName="0.1.0">
+
+    <uses-sdk
+        android:minSdkVersion="26"
+        android:targetSdkVersion="36" />
+
+    <!-- INTERNET is needed for the `zkite dev` reload socket (../../PLAN.md §15):
+         Android requires it even for a loopback connection, and the socket dials
+         127.0.0.1 to reach `adb reverse`. This manifest builds the *Dev Shell* and
+         the developer-facing harness APK, both of which want it.
+
+         A shipped app does NOT get it: a `zkite build` native APK generates its
+         own manifest (phase_2/bundler's manifest_gen), which requests no permissions
+         at all, and ZKiteActivity only starts the socket when the `zkite-devmode`
+         marker asset is present — which only the Dev Shell build stages. So the
+         permission and the code that needs it are absent together, rather than the
+         permission being present-but-unused (phase_2/PLAN.md §1.2). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- android:enableOnBackInvokedCallback="true" is deliberately NOT set here:
+         vendor/pack's AXML compiler doesn't know the attribute and fails the pack
+         outright (UnknownAndroidInternalAttribute) — same gap as the
+         android:configChanges flag constants phase_1/PLAN.md §7 M4 already dropped.
+         Back works regardless: without the flag the platform uses legacy dispatch
+         and calls ZKiteActivity.onBackPressed(), which is overridden (../../PLAN.md
+         §16). The OnBackInvokedCallback ZKiteActivity also registers is inert until
+         this can be set. -->
+    <application
+        android:label="@string/app_name"
+        android:icon="@drawable/icon"
+        android:extractNativeLibs="true"
+        android:hasCode="true">
+
+        <activity
+            android:name="dev.zkite.gpuharness.ZKiteActivity"
+            android:label="@string/app_name"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

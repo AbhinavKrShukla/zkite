@@ -1,0 +1,127 @@
+name: Build installable native candidates
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'PEP 440 candidate version (no publishing occurs)'
+        required: true
+        default: '1.1.0'
+permissions:
+  contents: read
+jobs:
+  android-payload:
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_BUILD_JOBS: '2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - run: sudo apt-get update && sudo apt-get install -y fonts-dejavu-core protobuf-compiler
+      - name: Install release toolchains
+        run: sdkmanager 'ndk;27.3.13750724' 'platforms;android-34' 'build-tools;34.0.0'
+      - name: Fetch pinned Android Python and pack
+        run: phase_0/scripts/fetch_python.sh
+      - run: phase_3/gpu_harness/scripts/fetch_androidx_core.sh
+      - name: Framework pytest regressions
+        run: |
+          python -m pip install pytest
+          python -m pytest phase_1/zkite_py/tests -q
+        env:
+          PYTHONPATH: phase_1/zkite_py/src
+      - name: Host regression gates
+        run: python scripts/check_host.py --native
+      - name: Build CLI for payload manifest
+        run: cargo build --release --locked --manifest-path phase_1/cli/Cargo.toml
+      - name: Use the release Dev Shell signing identity when configured
+        env:
+          ZKITE_DEVSHELL_SIGNING_PEM: ${{ secrets.ZKITE_DEVSHELL_SIGNING_PEM }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          key = os.environ.get("ZKITE_DEVSHELL_SIGNING_PEM", "")
+          if key:
+              path = Path(os.environ["RUNNER_TEMP"]) / "zkite-devshell.pem"
+              path.write_text(key)
+              path.chmod(0o600)
+              with open(os.environ["GITHUB_ENV"], "a") as stream:
+                  stream.write(f"ZKITE_TEST_PEM={path}\n")
+          PY
+      - name: Build native runtime and generic Dev Shells
+        run: |
+          ABI=arm64-v8a ZKITE_DEVSHELL=1 phase_3/gpu_harness/scripts/build_apk.sh
+          ABI=x86_64 ZKITE_DEVSHELL=1 phase_3/gpu_harness/scripts/build_apk.sh
+      - name: Stage one host-independent payload
+        run: python phase_1/cli/scripts/stage_payload.py candidate-payload --abi arm64-v8a --abi x86_64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-payload
+          path: candidate-payload/
+          include-hidden-files: true
+          if-no-files-found: error
+  desktop-wheels:
+    needs: android-payload
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win_amd64
+          - os: macos-14
+            platform: macosx_11_0_arm64
+    runs-on: ${{ matrix.os }}
+    env:
+      ZKITE_CANDIDATE_VERSION: ${{ inputs.version }}
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-payload
+          path: candidate-payload
+      - run: python scripts/fetch_pack.py
+      - run: cargo build --release --locked --manifest-path phase_1/cli/Cargo.toml
+      - name: Assemble and install wheels, then build an APK outside the checkout
+        shell: bash
+        run: python phase_1/cli/scripts/build_wheels.py --payload candidate-payload --out candidate-wheels --platform '${{ matrix.platform }}' --version "$ZKITE_CANDIDATE_VERSION" --verify
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: candidate-wheels/*.whl
+          if-no-files-found: error
+  linux-wheels:
+    needs: android-payload
+    runs-on: ubuntu-24.04
+    env:
+      ZKITE_CANDIDATE_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-payload
+          path: candidate-payload
+      - name: Build with the manylinux glibc baseline and verify installed wheels
+        run: |
+          docker run --rm -v "$PWD:/io" -w /io -e ZKITE_CANDIDATE_VERSION \
+            quay.io/pypa/manylinux_2_28_x86_64 bash scripts/build_linux_wheels.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-x86_64
+          path: candidate-wheels/*.whl
+          if-no-files-found: error

@@ -1,0 +1,9 @@
+[package]
+name = "zkite_frametiming"
+version = "0.0.1"
+edition = "2021"
+description = "Phase 3 §42 — the render loop's time-domain arithmetic, in a crate that builds for the host. `gpu_harness` does not (see ../PLAN.md §15.5), so anything living there is verifiable only on a device: §41 shipped `fling_tau` with no test at all and said so in its own known-gaps list, and §42's frame-budget bucketing would have arrived the same way. Both are pure functions over numbers with no platform in them, which is exactly the shape §35 moved into `zkite_imagestore` for the same reason."
+
+# Deliberately none. Everything here is arithmetic over `f32` and `std::time::Duration`;
+# a dependency would be a reason for this crate not to exist.
+[dependencies]

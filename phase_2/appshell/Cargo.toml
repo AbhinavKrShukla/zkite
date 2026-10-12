@@ -1,0 +1,21 @@
+[package]
+name = "zkite_appshell"
+version = "0.0.1"
+edition = "2021"
+description = "Phase 2, M2: the release App Shell — phase_1/devshell minus the dev-loop reload socket (see ../PLAN.md §1.2). Embeds zkite_py + a WebView bridge, boots straight into whatever app zkite build staged into assets/app.zip."
+
+[lib]
+name = "zkiteappshell"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "zkite-appshell-probe"
+path = "src/bin/probe.rs"
+
+[dependencies]
+# Same rationale as phase_0/spike1 and phase_1/devshell: no PyO3 build-script magic,
+# cross config comes entirely from PYO3_CONFIG_FILE.
+pyo3-ffi = { version = "0.27", default-features = false }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni-sys = "0.3"

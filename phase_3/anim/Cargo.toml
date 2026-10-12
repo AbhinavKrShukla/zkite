@@ -1,0 +1,12 @@
+[package]
+name = "zkite_anim"
+version = "0.0.1"
+edition = "2021"
+description = "Phase 3 §45 — the animation driver's time-domain core: easing curves, springs, tracks and the timeline that owns a set of running animations. A crate rather than a module in `gpu_harness` for the reason §35 and §42 already established twice — `gpu_harness` does not build for the host (../PLAN.md §15.5), so anything living there is verifiable only on a device. Everything here is a pure function of its arguments and an explicitly-supplied clock; if something in this crate needs a device to run, it is in the wrong crate."
+
+# Deliberately none, same as `zkite_frametiming`. This is arithmetic over `f32`,
+# `std::time::Duration` and `std::time::Instant`. A dependency here would be a reason
+# for the crate not to exist — in particular, no `serde`: the wire format is
+# `gpu_harness`/`zkite_pybridge`'s business (§45.4), and pulling it in would make this
+# crate's tests depend on a representation that is not its concern.
+[dependencies]

@@ -1,0 +1,233 @@
+{
+  "source": "phase_1/webruntime/index.html",
+  "sprites": [
+    {
+      "name": "check",
+      "extent": 24.0,
+      "shapes": [
+        {
+          "d": "M20 6 9 17l-5-5",
+          "fill": "none",
+          "stroke": {
+            "paint": "current",
+            "width": 2.0,
+            "cap": "round",
+            "join": "round"
+          }
+        }
+      ]
+    },
+    {
+      "name": "close",
+      "extent": 24.0,
+      "shapes": [
+        {
+          "d": "M18 6 6 18M6 6l12 12",
+          "fill": "none",
+          "stroke": {
+            "paint": "current",
+            "width": 2.0,
+            "cap": "round",
+            "join": "miter"
+          }
+        }
+      ]
+    },
+    {
+      "name": "chevron-right",
+      "extent": 24.0,
+      "shapes": [
+        {
+          "d": "m9 18 6-6-6-6",
+          "fill": "none",
+          "stroke": {
+            "paint": "current",
+            "width": 2.0,
+            "cap": "round",
+            "join": "round"
+          }
+        }
+      ]
+    },
+    {
+      "name": "chevron-left",
+      "extent": 24.0,
+      "shapes": [
+        {
+          "d": "m15 18-6-6 6-6",
+          "fill": "none",
+          "stroke": {
+            "paint": "current",
+            "width": 2.0,
+            "cap": "round",
+            "join": "round"
+          }
+        }
+      ]
+    },
+    {
+      "name": "chevron-down",
+      "extent": 24.0,
+      "shapes": [
+        {
+          "d": "m6 9 6 6 6-6",
+          "fill": "none",
+          "stroke": {
+            "paint": "current",
+            "width": 2.0,
+            "cap": "round",
+            "join": "round"
+          }
+        }
+      ]
+    },
+    {
+      "name": "plus",
+      "extent": 24.0,
+      "shapes": [
+        {
+          "d": "M12 5v14M5 12h14",
+          "fill": "none",
+          "stroke": {
+            "paint": "current",
+            "width": 2.0,
+            "cap": "round",
+            "join": "miter"
+          }
+        }
+      ]
+    },
+    {
+      "name": "minus",
+      "extent": 24.0,
+      "shapes": [
+        {
+          "d": "M5 12h14",
+          "fill": "none",
+          "stroke": {
+            "paint": "current",
+            "width": 2.0,
+            "cap": "round",
+            "join": "miter"
+          }
+        }
+      ]
+    },
+    {
+      "name": "search",
+      "extent": 24.0,
+      "shapes": [
+        {
+          "d": "M4.0,11.0A7.0,7.0 0 1,0 18.0,11.0A7.0,7.0 0 1,0 4.0,11.0Z",
+          "fill": "none",
+          "stroke": {
+            "paint": "current",
+            "width": 2.0,
+            "cap": "butt",
+            "join": "miter"
+          }
+        },
+        {
+          "d": "m20 20-3.5-3.5",
+          "fill": "rgb:0,0,0",
+          "stroke": {
+            "paint": "current",
+            "width": 2.0,
+            "cap": "round",
+            "join": "miter"
+          }
+        }
+      ]
+    },
+    {
+      "name": "heart",
+      "extent": 24.0,
+      "shapes": [
+        {
+          "d": "M12 21s-7-4.35-9.5-8.5C.7 8.8 2.5 5 6.2 5c2 0 3.4 1.1 4 2.2C10.8 6.1 12.2 5 14.2 5c3.7 0 5.5 3.8 3.7 7.5C19 16.65 12 21 12 21Z",
+          "fill": "none",
+          "stroke": {
+            "paint": "current",
+            "width": 2.0,
+            "cap": "butt",
+            "join": "round"
+          }
+        }
+      ]
+    },
+    {
+      "name": "star",
+      "extent": 24.0,
+      "shapes": [
+        {
+          "d": "m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.9-6.2-3.3-6.2 3.3 1.2-6.9-5-4.9 6.9-1Z",
+          "fill": "none",
+          "stroke": {
+            "paint": "current",
+            "width": 2.0,
+            "cap": "butt",
+            "join": "round"
+          }
+        }
+      ]
+    },
+    {
+      "name": "trash",
+      "extent": 24.0,
+      "shapes": [
+        {
+          "d": "M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6",
+          "fill": "none",
+          "stroke": {
+            "paint": "current",
+            "width": 2.0,
+            "cap": "round",
+            "join": "round"
+          }
+        }
+      ]
+    },
+    {
+      "name": "home",
+      "extent": 24.0,
+      "shapes": [
+        {
+          "d": "m3 11 9-8 9 8M5 10v10h5v-6h4v6h5V10",
+          "fill": "none",
+          "stroke": {
+            "paint": "current",
+            "width": 2.0,
+            "cap": "round",
+            "join": "round"
+          }
+        }
+      ]
+    },
+    {
+      "name": "settings",
+      "extent": 24.0,
+      "shapes": [
+        {
+          "d": "M9.0,12.0A3.0,3.0 0 1,0 15.0,12.0A3.0,3.0 0 1,0 9.0,12.0Z",
+          "fill": "none",
+          "stroke": {
+            "paint": "current",
+            "width": 2.0,
+            "cap": "butt",
+            "join": "miter"
+          }
+        },
+        {
+          "d": "M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1Z",
+          "fill": "none",
+          "stroke": {
+            "paint": "current",
+            "width": 2.0,
+            "cap": "butt",
+            "join": "miter"
+          }
+        }
+      ]
+    }
+  ]
+}

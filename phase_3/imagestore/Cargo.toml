@@ -1,0 +1,19 @@
+[package]
+name = "zkite_imagestore"
+version = "0.0.1"
+edition = "2021"
+description = "Phase 3 §35 — decoding and caching the bitmaps an `Image` leaf paints. Its own crate rather than a `gpu_harness` module for two reasons: `gpu_harness` does not build for the host (see ../PLAN.md §15.5), so nothing in it can carry a test, and the conformance harness needs the *same* decode to render an image fixture with vello_cpu. Deliberately knows nothing about wgpu — the atlas-upload half lives in `gpu_harness/src/images.rs`, which is the only part that needs a device."
+
+[dependencies]
+# Pure-Rust decoders, and that is a hard requirement rather than a preference: this
+# crate cross-compiles to four Android ABIs, and a C-backed decoder would put a second
+# NDK toolchain dependency in front of every `zkite build`. Checked with `cargo tree` —
+# `png` resolves flate2 onto `miniz_oxide` (Rust), and `zune-jpeg` has no non-Rust
+# dependency at all.
+png = "0.18"
+zune-jpeg = "0.5"
+# For `Pixmap`/`PremulRgba8` only — the representation both vello backends start from.
+# Depending on `vello_common` rather than on `vello_cpu` or `vello_hybrid` is what
+# keeps this crate usable from both paint paths *and* from the conformance harness.
+vello_common = { version = "0.1", default-features = false, features = ["std"] }
+rustc-hash = "2"

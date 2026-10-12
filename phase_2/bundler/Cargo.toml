@@ -1,0 +1,35 @@
+[package]
+name = "zkite-bundler"
+version = "0.0.1"
+edition = "2021"
+description = "Phase 2 — APK/AAB packing library, linked directly into the `zkite` binary (see ../PLAN.md §1.1: this cannot be a subprocess, because zkite build runs on the user's machine)."
+license = "Apache-2.0"
+
+[lib]
+name = "zkite_bundler"
+path = "src/lib.rs"
+
+# Path deps into the pinned clone in phase_0/vendor/pack, same convention as
+# phase_0/spike2_pack_apk — see that crate's Cargo.toml for why pack-api itself
+# (which drags in pack-aab's protoc build-time requirement unconditionally) is not
+# the dependency here. This crate depends on pack-aab directly instead, gated behind
+# the `aab` feature, so `cargo build` for the APK-only path never needs protoc.
+[dependencies]
+pack-asset-compiler = { path = "../../phase_0/vendor/pack/pack-asset-compiler" }
+pack-common = { path = "../../phase_0/vendor/pack/pack-common" }
+pack-sign = { path = "../../phase_0/vendor/pack/pack-sign", features = ["cert-gen"] }
+pack-zip = { path = "../../phase_0/vendor/pack/pack-zip" }
+pack-aab = { path = "../../phase_0/vendor/pack/pack-aab", optional = true }
+deku = "0.19.1"
+rsa = { version = "0.9", features = ["pem"] }
+p12 = "0.6.3"
+rand = "0.8"
+rcgen = "0.14"
+
+[features]
+default = []
+aab = ["dep:pack-aab"]
+
+[dev-dependencies]
+tempfile = "3"
+zip = { version = "7", default-features = false, features = ["deflate"] }

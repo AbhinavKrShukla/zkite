@@ -1,0 +1,11 @@
+{
+  "name": "__ZKITE_PROJECT_NAME__",
+  "version": "0.1.0",
+  "backend": "native",
+  "android": {
+    "package": "com.example.__ZKITE_PACKAGE_SUFFIX__",
+    "label": "__ZKITE_PROJECT_NAME__",
+    "version_code": 1,
+    "permissions": ["INTERNET"]
+  }
+}

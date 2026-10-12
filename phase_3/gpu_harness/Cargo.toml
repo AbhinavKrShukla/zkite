@@ -1,0 +1,66 @@
+[package]
+name = "zkite_gpu_harness"
+version = "0.0.1"
+edition = "2021"
+description = "Phase 3 spike 2 — see ../PLAN.md §4. ZKiteSurfaceView -> JNI -> ANativeWindow -> wgpu::Surface -> vello_hybrid, with a vello_cpu + ANativeWindow_lock software fallback per plan1.md §5/§9. Renders the counter app for real, interactively, on-device: tap increments state, re-lays-out, re-paints, presents again."
+
+[lib]
+name = "zkitegpuharness"
+crate-type = ["cdylib", "rlib"]
+
+[build-dependencies]
+cc = "1"
+
+[dependencies]
+zkite_renderer = { path = "../renderer" }
+zkite_pybridge = { path = "../pybridge" }
+# The animation driver's time-domain core (../PLAN.md §45). This crate is layer 2:
+# it owns which node's which channel is moving and when, while `zkite_anim` owns how
+# a value moves through time and never hears a channel name. See §47.
+zkite_anim = { path = "../anim" }
+# Decode + cache for `Image` (../PLAN.md §35). Its own crate because this one does not
+# build for the host (§15.5) and so cannot carry the decoder's tests, and because the
+# conformance harness needs the identical decode on the host — see its module doc.
+zkite_imagestore = { path = "../imagestore" }
+# The render loop's pure time-domain arithmetic — `fling_tau` (../PLAN.md §41) and
+# `frame_periods` (§42). Its own crate for the same reason `zkite_imagestore` is: this
+# one does not build for the host (§15.5), and §41 shipped its central formula with
+# no test at all as a direct result.
+zkite_frametiming = { path = "../frametiming" }
+# Re-exported by both vello backends, but named directly here because `images.rs` talks
+# in `Pixmap`/`ImageId` and should not have to pick a paint backend to say so.
+vello_common = { version = "0.1", default-features = false, features = ["std"] }
+serde_json = "1"
+# The dev-loop reload socket's wire frames (src/reload.rs) — same format and same two
+# crates phase_1/devshell already uses for the identical protocol.
+serde = { version = "1", features = ["derive"] }
+base64 = "0.22"
+rustc-hash = "2"
+unicode-segmentation = "1"
+vello_hybrid = { version = "0.1", default-features = false, features = ["wgpu", "wgpu_default", "text"] }
+vello_cpu = { version = "0.1", default-features = false, features = ["std", "text", "u8_pipeline"] }
+glifo = "0.2"
+peniko = "0.6"
+kurbo = "0.13"
+wgpu = { version = "29", default-features = false, features = ["wgsl"] }
+pollster = "0.4"
+raw-window-handle = "0.6"
+# Platform-agnostic AccessKit schema (../PLAN.md §5 item 2) — same crate `zkite_pybridge`
+# uses to build each node's role/label/value/actions; this crate only adds bounds
+# (from `positioned()`) and hands the result to `accesskit_android` below.
+accesskit = "0.24"
+
+[target.'cfg(target_os = "android")'.dependencies]
+ndk = { version = "0.9", default-features = false, features = ["nativewindow"] }
+ndk-sys = "0.6"
+jni-sys = "0.3"
+# The real Android bridge: builds an `android.view.accessibility.AccessibilityNodeProvider`
+# and installs it on `ZKiteSurfaceView` via `View.setAccessibilityDelegate`/
+# `setOnHoverListener` — entirely through its own embedded `.dex` (see the
+# `embedded-dex` feature below), loaded at runtime via `InMemoryDexClassLoader`, so
+# this needs zero new Java source and zero AAPT2/resource step, unlike
+# vendor/gametextinput's androidx-core dependency (../PLAN.md §7.1/§7.3). Pulls in
+# `jni = "0.21"` (re-exported as `accesskit_android::jni`) — a *different* crate from
+# this crate's own raw `jni-sys = "0.3"` calls (see ../PLAN.md §5 item 2's own
+# bridging note on why `.cast()` between the two is safe).
+accesskit_android = { version = "0.7", features = ["embedded-dex"] }

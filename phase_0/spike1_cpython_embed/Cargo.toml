@@ -1,0 +1,26 @@
+[package]
+name = "zkite_spike1"
+version = "0.0.1"
+edition = "2021"
+description = "Phase 0 spike 1: embed official CPython 3.14 for Android in a Rust cdylib."
+license = "Apache-2.0"
+
+[lib]
+name = "zkitespike1"
+# cdylib: the .so that ships in the APK's lib/<abi>/ directory (spike 2 consumes it).
+# rlib:   so the standalone prober binary can reuse the same code.
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "zkite-py-probe"
+path = "src/bin/probe.rs"
+
+[dependencies]
+# Raw C-API bindings, no high-level crate. plan1.md §9 flags PyO3 embedding on Android as
+# the risk; `pyo3-ffi` is the documented fallback. See README, "Why pyo3-ffi and not pyo3".
+# `default-features = false` keeps the build script from probing a host interpreter —
+# cross configuration comes entirely from PYO3_CONFIG_FILE (scripts/build.sh).
+pyo3-ffi = { version = "0.27", default-features = false }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni-sys = "0.3"

@@ -1,0 +1,35 @@
+[package]
+name = "zkite"
+version = "1.1.0"
+license = "MIT"
+edition = "2021"
+description = "zkite CLI — zkite new / zkite dev / zkite build / zkite doctor / zkite keygen (phase 1 + phase 2, see ../PLAN.md and ../../phase_2/PLAN.md). One binary evolving across phases, not a fork per phase — see phase_2/PLAN.md §5."
+
+[[bin]]
+name = "zkite"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+# Includes the Windows/Wine unaligned directory-event fix.
+notify = "8.2"
+sha2 = "0.10"
+walkdir = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+toml = "0.8"
+# Wheels and Android archives use stored/deflated ZIP entries. Avoid unrelated
+# codecs (especially zstd's native build) in the host CLI distribution.
+zip = { version = "7", default-features = false, features = ["deflate"] }
+tempfile = "3"
+# Arrow-key device selection on Unix terminals and Windows consoles.
+console = "0.16"
+
+# Phase 2's packing library — linked directly in, not shelled out to. See
+# ../../phase_2/PLAN.md §1.1 for why zkite build cannot be `cargo run`-based the way
+# phase 0/1's build scripts are.
+zkite-bundler = { path = "../../phase_2/bundler", features = ["aab"] }
+pack-asset-compiler = { path = "../../phase_0/vendor/pack/pack-asset-compiler" }
+pack-sign = { path = "../../phase_0/vendor/pack/pack-sign", features = ["cert-gen"] }

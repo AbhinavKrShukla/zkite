@@ -1,0 +1,25 @@
+[package]
+name = "zkite_devshell"
+version = "0.0.1"
+edition = "2021"
+description = "Phase 1, M4: the Dev Shell — embeds zkite_py + a WebView bridge. Extends phase_0/spike1's CPython embed."
+license = "Apache-2.0"
+
+[lib]
+name = "zkitedevshell"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "zkite-devshell-probe"
+path = "src/bin/probe.rs"
+
+[dependencies]
+# Same rationale as phase_0/spike1: no PyO3 build-script magic, cross config comes
+# entirely from PYO3_CONFIG_FILE.
+pyo3-ffi = { version = "0.27", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni-sys = "0.3"

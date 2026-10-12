@@ -1,0 +1,179 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>zkite</title>
+<style>
+  /* The three typeface families ZKite renders with, bundled rather than resolved from
+     the host/device (phase_3/PLAN.md §9.4). Without these, `font-sans` resolves to
+     whatever *this* machine calls "sans-serif" — Noto Sans on the conformance host,
+     Roboto on an Android device — while the native backend renders whichever font it
+     was handed, so the same app shows different typefaces on different backends and
+     on different phones. Both backends now read the identical six files, staged by
+     scripts/stage_fonts.sh into fonts/ (not committed — see that script).
+
+     Relative URLs so this works unchanged from a file:// asset directory inside the
+     APK and from the conformance harness's own filesystem load; there is no server
+     and no network in either case. */
+  @font-face { font-family: "ZKite Sans";  font-weight: 400; src: url("fonts/sans.ttf"); }
+  @font-face { font-family: "ZKite Sans";  font-weight: 700; src: url("fonts/sans-bold.ttf"); }
+  @font-face { font-family: "ZKite Serif"; font-weight: 400; src: url("fonts/serif.ttf"); }
+  @font-face { font-family: "ZKite Serif"; font-weight: 700; src: url("fonts/serif-bold.ttf"); }
+  @font-face { font-family: "ZKite Mono";  font-weight: 400; src: url("fonts/mono.ttf"); }
+  @font-face { font-family: "ZKite Mono";  font-weight: 700; src: url("fonts/mono-bold.ttf"); }
+
+  html, body { margin: 0; padding: 0; height: 100%; background: #000; }
+  /* display:flex so a root widget's "flex-1" (flex-grow) actually has a flex parent
+     to grow inside and fills the viewport — found on a real device (M4): without
+     this, "flex-1" on the root Column computed correctly but had no visible effect,
+     since flex-grow does nothing without a flex container above it.
+
+     `height`, not `min-height` — see phase_3/PLAN.md §12. `min-height: 100%` bounds
+     the root from below and leaves it free to grow above, which is invisible for any
+     widget that fits on screen (i.e. every app this project had before `List`) and
+     catastrophic for one that does not: a `flex-1` scroll container inside an
+     unbounded parent resolves against its own content instead of the viewport, so the
+     `List` reports a viewport as tall as the rows it just rendered, Python widens the
+     window to fill it, and the list grows again. On a real device that never
+     converged. The native backend never had this bug because `zkite_pybridge::build`'s
+     equivalent wrapper is `w-full h-full` — a *definite* height — and its comment
+     claims to mirror this rule while actually stating the stricter one. Now they
+     genuinely match. Content taller than the viewport is the app's own
+     `ScrollView`/`List` to handle, which is exactly the model both backends share. */
+  #zkite-root { height: 100%; display: flex; flex-direction: column; }
+  /* Switch: a small CSS-only track/thumb over a plain checkbox (native range styling
+     is unfixable across platforms per ../PLAN.md §3, but a checkbox track is not).
+     Metrics/off-color aligned to the native side's own already-Tailwind-token
+     values (`Switch.classes()`/`_tree_children`,
+     `phase_1/zkite_py/src/zkite/widgets.py`: a `w-[44px] h-[24px]` track with
+     `p-[2px]` around a `w-[20px] h-[20px]` thumb, off-state `bg-slate-700`
+     #314158) rather than the other direction — this file's own values had quietly
+     drifted 2px off on both track height and thumb size, and used a different
+     color *family* (zinc-700 #3f3f46) for the off state, undetected until
+     phase_3/PLAN.md §9.2 item 3 pixel-diffed the two independently hand-authored
+     designs against each other for the first time. On-state (indigo-500 #615fff)
+     already matched exactly on both and is unchanged.
+
+     **Scoped to `[role=switch]` as of ../PLAN.md §30.** It was a bare
+     `input[type=checkbox]` selector, which was correct while `Switch` was the only
+     checkbox-shaped widget ZKite had and became wrong the moment `Checkbox` existed —
+     a `Checkbox` would have silently inherited a 44x24 track and a sliding thumb.
+     `Switch.aria_role` emits the role on both paths precisely so this selector can be
+     specific, and it is the right accessible role for the control regardless. */
+  input[type="checkbox"][role="switch"] {
+    width: 44px; height: 24px; border-radius: 9999px; background: #314158;
+    position: relative; cursor: pointer; transition: background-color .15s ease;
+  }
+  input[type="checkbox"][role="switch"]::before {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px;
+    border-radius: 9999px; background: #fff; transition: transform .15s ease;
+  }
+  input[type="checkbox"][role="switch"]:checked { background: #615fff; }
+  input[type="checkbox"][role="switch"]:checked::before { transform: translateX(20px); }
+
+  /* Checkbox and Radio (../PLAN.md §30). Unlike the Switch above, the *box* itself is
+     drawn by Tailwind classes on the element — `Checkbox.classes()` emits the size,
+     radius, border and fill, and real Tailwind renders them here exactly as `twcore`
+     renders them natively, so there is no second hand-authored copy of the box.
+     What cannot cross over is the **mark inside it**: an `<input>` is a void element
+     and cannot contain the `Icon("check")` child the tree path nests, so the tick is
+     drawn here as a CSS-rotated rectangle and by the shared sprite table natively.
+     That is the one deliberate two-copies seam in these widgets, and it is why
+     `checkbox_checked`/`radio_checked` are conformance fixtures — the harness *can*
+     see a static checked state, which is the whole argument ../PLAN.md §28 made for
+     picking work a pixel diff can discriminate. */
+  input[type="checkbox"][role="checkbox"] { position: relative; cursor: pointer; }
+  input[type="checkbox"][role="checkbox"]:checked::before {
+    content: ""; position: absolute; left: 4px; top: 0px; width: 5px; height: 10px;
+    border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+  }
+  input[type="radio"][role="radio"] { position: relative; cursor: pointer; }
+  input[type="radio"][role="radio"]:checked::before {
+    content: ""; position: absolute; left: 3px; top: 3px; width: 10px; height: 10px;
+    border-radius: 9999px; background: #615fff;
+  }
+  /* Slider: `Slider`'s only implied class was `appearance-none w-full` — nothing
+     else — so this had no CSS at all and fell back to Chromium's default OS-drawn
+     range control (a small floating dot, no track) instead of the custom
+     track/fill/thumb `Slider._tree_children` builds on the native side
+     (`phase_1/zkite_py/src/zkite/widgets.py`). Found, quantified, and documented as
+     a real conformance gap by phase_3/PLAN.md §9.2 item 2 — this closes it by
+     reskinning the native `<input type="range">` to match that design instead of
+     hand-rolling a fake slider out of other elements, the same "style the real
+     platform control" approach the checkbox-based Switch above already uses.
+     Colors/sizes are `zkite_renderer`'s own already-Tailwind-token values
+     (indigo-500 #615fff, slate-700 #314158), not independently chosen — see that
+     widget's `classes()`/`_tree_children` for the values being matched. `--zkite-pct`
+     is written by `Slider._tag_attrs()` (HTML-only — the native path never touches
+     this file) as an inline custom property, since a plain range input exposes no
+     other way for CSS to know how far "filled" the track should be. -webkit-only:
+     Android's WebView is Chromium/Blink, which is the only engine this file's CSS
+     has ever needed to target (see the checkbox rules above, same scope). */
+  input[type="range"] {
+    width: 100%; height: 16px; background: transparent; cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    height: 6px; border-radius: 9999px;
+    background: linear-gradient(to right, #615fff var(--zkite-pct, 0%), #314158 var(--zkite-pct, 0%));
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 9999px; background: #fff;
+    margin-top: -5px; /* (16px thumb - 6px track) / 2, centers the thumb on the track */
+    box-shadow: none; border: none;
+  }
+</style>
+<!-- Point Tailwind's own font theme variables at the bundled families above, so
+     `font-sans`/`font-serif`/`font-mono` compile to them instead of to the
+     platform's generic families. This is Tailwind v4's supported CSS-first config
+     surface (plan1.md §4's "theming via @theme-equivalent"), read by the vendored
+     browser build from a `type="text/tailwindcss"` block — not a hand-written
+     override racing Tailwind's own :root declarations on source order.
+
+     The generic keyword is kept as the second entry in each stack purely as a
+     last-resort fallback: if fonts/ were somehow missing, text still renders rather
+     than disappearing — but it will not match the native backend, which is why
+     stage_fonts.sh fails loudly instead of leaving the directory empty. -->
+<style type="text/tailwindcss">
+  @theme {
+    --font-sans: "ZKite Sans", sans-serif;
+    --font-serif: "ZKite Serif", serif;
+    --font-mono: "ZKite Mono", monospace;
+  }
+</style>
+
+<!-- Vendored, MIT-licensed, no network access at runtime — see vendor/*.VERSION -->
+<script src="vendor/tailwind-browser.js"></script>
+<script src="vendor/morphdom.min.js"></script>
+</head>
+<body>
+<div id="zkite-root"></div>
+
+<!-- Placeholder starter icon set for the `Icon` widget (`<use href="#icon-<name>">`).
+     A real icon set is a phase-1.x follow-up, not a phase-0/1 architectural question. -->
+<svg style="display:none" aria-hidden="true">
+  <symbol id="icon-check" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="icon-close" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M18 6 6 18M6 6l12 12"/></symbol>
+  <symbol id="icon-chevron-right" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="icon-chevron-left" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m15 18-6-6 6-6"/></symbol>
+  <!-- Added for `Select`'s trigger (../PLAN.md §33). A picker that does not say it
+       opens something is the one place a chevron is not decoration, and rotating an
+       existing sprite is not available: `twcore` parses no `rotate-*` and neither paint
+       path applies one. Adding it *here* rather than in `icons.rs` is the point of
+       phase_3/renderer/scripts/gen_icons.py — this file is the source of truth and the
+       native sprite table is generated from it, so the two backends cannot drift. -->
+  <symbol id="icon-chevron-down" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="icon-plus" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="icon-minus" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 12h14"/></symbol>
+  <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path stroke="currentColor" stroke-width="2" stroke-linecap="round" d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="icon-heart" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M12 21s-7-4.35-9.5-8.5C.7 8.8 2.5 5 6.2 5c2 0 3.4 1.1 4 2.2C10.8 6.1 12.2 5 14.2 5c3.7 0 5.5 3.8 3.7 7.5C19 16.65 12 21 12 21Z"/></symbol>
+  <symbol id="icon-star" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.9-6.2-3.3-6.2 3.3 1.2-6.9-5-4.9 6.9-1Z"/></symbol>
+  <symbol id="icon-trash" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></symbol>
+  <symbol id="icon-home" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m3 11 9-8 9 8M5 10v10h5v-6h4v6h5V10"/></symbol>
+  <symbol id="icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2" d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1Z"/></symbol>
+</svg>
+
+<script src="zkite-runtime.js"></script>
+</body>
+</html>

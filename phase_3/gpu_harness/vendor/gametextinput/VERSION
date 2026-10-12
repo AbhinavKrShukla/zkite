@@ -1,0 +1,28 @@
+androidx.games:games-text-input:3.0.1
+Source: https://dl.google.com/android/maven2/androidx/games/games-text-input/3.0.1/games-text-input-3.0.1.aar
+Fetched: 2026-08-04
+
+Vendored per ../../PLAN.md §5 (IME) and phase_0/README.md's original finding:
+"GameTextInput is standalone-usable ... the C++ file is small enough to fold
+into the existing cc-crate/NDK cross-compile in build.rs." That's exactly what
+../build.rs does with include/game-text-input/gametextinput.cpp below.
+
+What's here, straight from the AAR's own prefab layout (paths preserved so a
+diff against a future AAR version is trivial):
+  include/game-text-input/gametextinput.{h,cpp}  the C API + its implementation
+  include/game-text-input/gamecommon.h            small shared macros
+  include/common/gamesdk_common.h                 version-packing macro
+  classes.jar                                     compiled Java classes (InputConnection,
+                                                    GameTextInput, Listener, Settings, State) —
+                                                    used as-is (javac classpath + merged into
+                                                    the app's classes.dex via d8), not recompiled
+                                                    from source, since only the prebuilt AAR ships
+                                                    class files, not .java sources.
+
+Deliberately NOT vendored: the prebuilt static libs under prefab/modules/*/libs/
+(one .a per ABI) — see ../build.rs's own comment on why compiling
+gametextinput.cpp ourselves (instead of linking those) was the simpler, more
+consistent-with-the-rest-of-this-repo choice.
+
+Apache License 2.0 (LICENSE, fetched from apache.org) — same as the rest of
+Google's Game SDK / games-text-input source.

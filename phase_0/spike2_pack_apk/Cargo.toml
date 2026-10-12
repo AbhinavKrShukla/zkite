@@ -1,0 +1,27 @@
+[package]
+name = "zkite-pack"
+version = "0.0.1"
+edition = "2021"
+description = "Phase 0 spike 2: build a signed, installable APK with google/pack — no Gradle, no aapt2, no apksigner, no JDK."
+license = "Apache-2.0"
+
+[[bin]]
+name = "zkite-pack"
+path = "src/main.rs"
+
+# Path deps into the pinned clone in phase_0/vendor/pack. Deliberately *not* a fork:
+# vendor/pack is a pristine checkout, and everything ZKite adds lives in this crate.
+# See README, "The gap in pack, and how this sidesteps it".
+#
+# pack-api is deliberately NOT a dependency: it pulls in pack-aab, whose build script
+# needs `protoc`. AAB output is a phase-2 deliverable; spike 2 only has to produce an APK,
+# and requiring a protobuf compiler to build the packager would undercut the premise.
+[dependencies]
+pack-asset-compiler = { path = "../vendor/pack/pack-asset-compiler" }
+pack-common = { path = "../vendor/pack/pack-common" }
+pack-sign = { path = "../vendor/pack/pack-sign", features = ["cert-gen"] }
+pack-zip = { path = "../vendor/pack/pack-zip" }
+deku = "0.19.1"
+
+[dev-dependencies]
+zip = "7"

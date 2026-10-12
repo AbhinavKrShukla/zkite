@@ -1,0 +1,12 @@
+[package]
+name = "repro_7_6"
+version = "0.0.1"
+edition = "2021"
+description = "Host-only reproduction attempt for phase_3/PLAN.md §7.6/§7.9's still-unresolved rendering bug (an unrelated text node vanishes once a TextField can be focused) — see src/main.rs's module doc for the result and what it does/doesn't rule out."
+
+[dependencies]
+zkite_renderer = { path = "../renderer" }
+zkite_pybridge = { path = "../pybridge" }
+vello_cpu = "0.1"
+png = "0.17"
+serde_json = "1"

@@ -1,0 +1,13 @@
+[package]
+name = "twcore"
+version = "0.0.1"
+edition = "2021"
+description = "Phase 0 spike: Tailwind class strings -> taffy::Style + paint/text/transform, no CSS."
+license = "Apache-2.0"
+
+[dependencies]
+taffy = { version = "0.9", default-features = false, features = ["flexbox", "grid", "block_layout", "std", "taffy_tree"] }
+rustc-hash = "2"
+
+[dev-dependencies]
+taffy = { version = "0.9", default-features = false, features = ["flexbox", "grid", "block_layout", "std", "taffy_tree"] }

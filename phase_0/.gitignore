@@ -1,0 +1,14 @@
+# Downloaded, not authored: `scripts/fetch_python.sh` recreates all of it.
+# ~1.2 GB — the official python.org Android prefixes and the google/pack clone.
+vendor/
+
+# Build outputs.
+target/
+artifacts/
+spike2_pack_apk/build/
+
+# Emulator/system-image scratch, if anyone unpacks one here.
+*.zip
+*.tar
+*.tar.gz
+!spike3_twcore/palette.json

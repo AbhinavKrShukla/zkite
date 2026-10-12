@@ -1,0 +1,30 @@
+[package]
+name = "zkite_pybridge"
+version = "0.0.1"
+edition = "2021"
+description = "Phase 3 — embeds CPython + zkite_py (same pyo3-ffi embedding as phase_1/devshell, phase_2/appshell) and bridges zkite.app.App.render_tree into zkite_renderer::Renderer. See ../PLAN.md §5."
+
+[lib]
+name = "zkite_pybridge"
+crate-type = ["rlib"]
+
+[dependencies]
+zkite_renderer = { path = "../renderer" }
+# The animation driver's time-domain core (../PLAN.md §45). This crate owns the
+# *wire format* (`anim.rs`) — turning a node's `anim` attribute into `zkite_anim`
+# tracks — while the driver that samples them lives in `gpu_harness`, which does not
+# build for the host (§15.5). Splitting there is what keeps the parse testable.
+zkite_anim = { path = "../anim" }
+# Same rationale as phase_0/spike1 and phase_1/devshell: no PyO3 build-script magic,
+# cross config comes entirely from PYO3_CONFIG_FILE.
+pyo3-ffi = { version = "0.27", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rustc-hash = "2"
+# The platform-agnostic AccessKit schema crate only (../PLAN.md §5 item 2) — no
+# platform adapter here. `accesskit::Node`/`Role`/`NodeId` are pure data, so this
+# stays host-testable exactly like the rest of this crate; `accesskit_android` (the
+# actual JNI/AccessibilityNodeProvider bridge) is gpu_harness's dependency, not
+# pybridge's — mirrors the zkite_renderer/gpu_harness paint split (shared computation
+# vs. per-backend platform glue).
+accesskit = "0.24"
