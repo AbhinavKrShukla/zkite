@@ -4,8 +4,6 @@
 
 ### Build Native Android Apps in Pure Python with Instant Hot Reload
 
-Source Code Coming Soon! - But Zkite is availabe on PIP to get started!
-
 [![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Android Target](https://img.shields.io/badge/Android-API%2029%2B%20(10%2B)-3DDC84?logo=android&logoColor=white)](https://developer.android.com/)
 [![Google Play](https://img.shields.io/badge/Google%20Play-.aab%20Ready-34A853?logo=googleplay&logoColor=white)](https://play.google.com/console)
