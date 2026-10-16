@@ -12,10 +12,11 @@ historical proposals and experiments; they are not installation instructions.
 
 The complete distribution is `zkite`; it installs matching `zkite-framework` and
 `zkite-payload` dependencies. The command and Python import are both `zkite`.
-The current source targets `1.1.1`, following the published `1.1.0`. The new wheels
-await manual publication. After upload, install with `python -m pip install zkite==1.1.1`.
-Before upload, use the matching local wheels in `publish-dist/1.1.1/` as below,
-or install the previous stable version with `python -m pip install zkite==1.1.0`.
+The current release is `1.1.1`. Install it with:
+
+```bash
+python -m pip install zkite==1.1.1
+```
 
 For the extended learner knowledge base, see
 [Documentation-detailed.md](Documentation-detailed.md). It covers public concepts,
@@ -34,12 +35,11 @@ Those tools are used once to produce framework release artifacts.
 
 ### Windows PowerShell
 
-Use the Windows **win_amd64** CLI wheel with the matching framework and payload
-wheels. All three must have the same version and be in `publish-dist`:
+Install the Windows x86_64 distribution from PyPI:
 
 ```powershell
 py -3.14 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --no-index --find-links publish-dist/1.1.1 zkite==1.1.1
+.\.venv\Scripts\python.exe -m pip install zkite==1.1.1
 adb devices
 .\.venv\Scripts\zkite.exe new hello
 cd hello
@@ -55,22 +55,20 @@ $env:ZKITE_PYTHON = 'C:\Path With Spaces\Python314\python.exe'
 
 ### Linux
 
-Use the CLI wheel built for your OS and CPU:
+Install the Linux x86_64 distribution from PyPI:
 
 ```bash
 python3.14 -m venv .venv
 . .venv/bin/activate
-python -m pip install --no-index --find-links publish-dist/1.1.1 zkite==1.1.1
+python -m pip install zkite==1.1.1
 adb devices
 zkite new hello
 cd hello
 zkite run
 ```
 
-The prepared Linux x86_64 wheel supports glibc 2.28 or newer and passed auditwheel
-inspection. The local upload set includes Windows x86_64 and Linux x86_64; no macOS
-wheel is included. The broader CI workflow contains a macOS Apple-silicon job,
-which is separate from the locally verified release set.
+The Linux x86_64 wheel supports glibc 2.28 or newer. Windows x86_64 and Linux
+x86_64 are the supported host targets for this release; a macOS wheel is not included.
 
 ## 2. Understand the development commands
 
@@ -362,7 +360,9 @@ packaged recursively; use `Image(..., src="assets/photo.png")` for its images.
 
 `zkite new hello .` creates the scaffold in the current directory, refusing to
 replace existing scaffold paths. Unrelated files, including `pyproject.toml`, stay
-in place. Plain `zkite new hello` creates a new `hello/` directory.
+in place. Plain `zkite new hello` creates a new `hello/` directory. For an existing
+Python project, add the required ZKite files yourself rather than overwriting its
+entry module.
 
 Use a package identifier you control before publication and keep it unchanged
 for subsequent releases. Increase `version_code` for each release independently

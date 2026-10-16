@@ -1,8 +1,8 @@
-# ZKite 1.1 — detailed learner documentation
+# ZKite 1.1.1 — detailed learner documentation
 
 This is the learner-facing knowledge base for ZKite 1.1.1. It describes the implemented native Android framework, its public API, everyday workflows, and practical debugging. It intentionally contains no framework source listings, private release infrastructure, signing material, or credentials. Commands are terminal instructions; API names and configuration keys are reference material.
 
-This guide covers **1.1.1**, prepared after the published 1.1.0 release. See [release notes](CHANGELOG.md) and [release status](docs/status.md) for changes and tested scope.
+This guide covers ZKite **1.1.1**. See [release notes](CHANGELOG.md) and [release status](docs/status.md) for changes and tested scope.
 
 ## Contents and suggested learning order
 
@@ -111,11 +111,11 @@ In PowerShell, run:
 
 These commands do not require activating a PowerShell script. If your organization restricts script execution, continue using the explicit executable paths. After moving into a project one directory below the environment, the corresponding CLI path is `..\.venv\Scripts\zkite.exe`.
 
-### Install before the 1.1.1 upload
+### Install the current release
 
-Until 1.1.1 is uploaded, the published stable version is `zkite==1.1.0`.
-
-For locally supplied 1.1.1 wheels, put the compatible host CLI wheel and both shared wheels in one directory. Run `python -m pip install --no-index --find-links PATH_TO_WHEELS zkite==1.1.1`. Use the actual directory path, and quote it if it contains spaces. Pip selects the CLI wheel matching the host and installs the matching dependencies. An Android APK is not a pip-installable file.
+Install ZKite with `python -m pip install zkite==1.1.1`. Pip installs the matching
+framework and Android runtime packages automatically. An Android APK is not a
+pip-installable file.
 
 ### Verify installation
 
@@ -786,7 +786,7 @@ Keep a short record of devices and scenarios tested. Describe remaining limitati
 
 Use the major sections as stable documentation pages, retaining a visible version selector or version label. Group them into Getting Started, Core Concepts, Widgets, Device Integration, Building Apps, and Troubleshooting. Keep the support matrix and packaging limitations easy to find before a learner chooses a project structure.
 
-Present Windows and Linux installation as separate tabs, with copyable terminal commands and explicit working-directory notes. Keep prerequisites beside the commands. Distinguish the current published release from a locally prepared release; update the publication-status note only after the upload is confirmed.
+Present Windows and Linux installation as separate tabs, with copyable terminal commands and explicit working-directory notes. Keep prerequisites beside the commands. Show the current release number prominently.
 
 Turn widget and configuration tables into reference pages without inventing extra properties. Link conceptual explanations to the corresponding troubleshooting entries. Label unsupported capabilities as current limitations and keep roadmap ideas separate from available API documentation.
 

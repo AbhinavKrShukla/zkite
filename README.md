@@ -113,6 +113,22 @@ py -3.14 -m venv .venv; .\.venv\Scripts\Activate.ps1
 pip install zkite==1.1.1
 ```
 
+### Using uv
+
+`uv init` normally creates a starter `main.py`. ZKite owns that entry module, so
+start with a bare uv project and then add ZKite:
+
+```bash
+uv init --bare
+uv add zkite==1.1.1
+uv run zkite new myapp .
+uv run zkite dev
+```
+
+`uv init --bare` creates only `pyproject.toml`, so ZKite can create its `main.py`,
+`.gitignore`, `app.json`, assets directory, and editor configuration without
+overwriting files. Run these commands in the directory that will contain the app.
+
 ### 2. Scaffold a Project
 ```bash
 zkite new my_mobile_app
