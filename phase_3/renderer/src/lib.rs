@@ -1236,7 +1236,10 @@ impl Renderer {
             .rev()
             .find(|n| {
                 let (nx, ny, nw, nh) = n.rect;
-                x >= nx && x < nx + nw && y >= ny && y < ny + nh
+                let inside_clip = n.clip.is_none_or(|(cx, cy, cw, ch)| {
+                    x >= cx && x < cx + cw && y >= cy && y < cy + ch
+                });
+                inside_clip && x >= nx && x < nx + nw && y >= ny && y < ny + nh
             })
             .map(|n| n.node)
     }
@@ -1973,6 +1976,46 @@ mod tests {
     /// offset is applied via `positioned`, children shift up while the container's
     /// *own* rect stays put, and downstream content gets clipped to the container's
     /// box rather than bleeding past it.
+    #[test]
+    fn clipped_scroll_rows_do_not_intercept_header_or_footer_taps() {
+        let mut r = test_renderer();
+        let mut header = None;
+        let mut footer = None;
+        let mut list = None;
+        let mut rows = Vec::new();
+        let root = r.container("flex flex-col w-[100px] h-[180px]", |r| {
+            header = Some(r.container("h-[40px] shrink-0", |_| vec![]));
+            list = Some(r.container("flex flex-col overflow-auto h-[100px] shrink-0", |r| {
+                for _ in 0..5 {
+                    rows.push(r.container("h-[40px] shrink-0", |_| vec![]));
+                }
+                rows.clone()
+            }));
+            footer = Some(r.container("h-[40px] shrink-0", |_| vec![]));
+            vec![header.unwrap(), list.unwrap(), footer.unwrap()]
+        });
+        r.layout(root, 100.0, 180.0);
+        let mut offsets = FxHashMap::default();
+        offsets.insert(list.unwrap(), (0.0, 40.0));
+        assert_eq!(r.hit_test(root, 20.0, 20.0, &offsets), header);
+        assert_eq!(r.hit_test(root, 20.0, 60.0, &offsets), Some(rows[1]));
+        assert_eq!(r.hit_test(root, 20.0, 160.0, &offsets), footer);
+    }
+
+    #[test]
+    fn overflow_hidden_clips_hit_targets_on_both_axes() {
+        let mut r = test_renderer();
+        let mut child = None;
+        let root = r.container("overflow-hidden w-[50px] h-[50px]", |r| {
+            child = Some(r.container("w-[100px] h-[100px]", |_| vec![]));
+            vec![child.unwrap()]
+        });
+        r.layout(root, 100.0, 100.0);
+        assert_eq!(r.hit_test(root, 25.0, 25.0, &Default::default()), child);
+        assert_eq!(r.hit_test(root, 75.0, 25.0, &Default::default()), None);
+        assert_eq!(r.hit_test(root, 25.0, 75.0, &Default::default()), None);
+    }
+
     #[test]
     fn scroll_offset_shifts_children_and_clips_without_moving_the_container() {
         let mut r = test_renderer();

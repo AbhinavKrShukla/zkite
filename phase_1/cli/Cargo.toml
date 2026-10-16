@@ -1,6 +1,6 @@
 [package]
 name = "zkite"
-version = "1.1.0"
+version = "1.1.1"
 license = "MIT"
 edition = "2021"
 description = "zkite CLI — zkite new / zkite dev / zkite build / zkite doctor / zkite keygen (phase 1 + phase 2, see ../PLAN.md and ../../phase_2/PLAN.md). One binary evolving across phases, not a fork per phase — see phase_2/PLAN.md §5."

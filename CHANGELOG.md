@@ -1,6 +1,17 @@
 # Changelog
 
-## 1.1.0 — prepared for publication
+## 1.1.1 — prepared for publication
+
+- Fix `zkite dev` dependency resolution, transitive package/resource transfer, caching, and live dependency updates/removal.
+- Fix clipped controls intercepting taps, shrinking-list scroll positions, disabled controls, slider release values, and skipped-frame retries.
+- Preserve TextField selection geometry and Unicode cursor positions; show the native toolbar on first long-press and suppress duplicate change callbacks.
+- Harden navigation validation and screen identity; add optional native entrance transitions.
+- Keep startup responsive while extracting assets and dismiss the splash only after a presented frame.
+- Refresh accessibility when enabled after startup.
+
+See [audit and coverage](docs/ui-audit.md). All three distributions use version 1.1.1.
+
+## 1.1.0
 
 Feature release after 1.0.0. Existing projects using `[tool.zkite]` in
 `pyproject.toml` remain supported.

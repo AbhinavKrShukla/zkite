@@ -124,7 +124,7 @@ unsafe impl Send for GlobalRef {}
 #[derive(Clone, Debug, Default)]
 pub struct TextState {
     pub text: String,
-    /// Byte offsets into `text` (UTF-8), matching `GameTextInputState`'s own units.
+    /// Byte offsets into `text` (UTF-8), converted from Android UTF-16 units.
     /// `start == end` is a plain cursor, no selection (this integration doesn't yet
     /// distinguish a real selection from a cursor anywhere downstream — see
     /// ../PLAN.md §7.7's own known-gaps note). Feeds `render_thread.rs`'s
@@ -149,9 +149,11 @@ extern "C" fn state_callback(context: *mut c_void, state: *const GameTextInputSt
             String::new()
         } else {
             let bytes = std::slice::from_raw_parts(s.text_utf8 as *const u8, s.text_length as usize);
-            String::from_utf8_lossy(bytes).into_owned()
+            cesu8::from_java_cesu8(bytes).unwrap_or_else(|_| String::from_utf8_lossy(bytes)).into_owned()
         };
-        *out = Some(TextState { text, selection_start: s.selection.start, selection_end: s.selection.end });
+        let selection_start = zkite_pybridge::utf16_to_utf8_offset(&text, s.selection.start);
+        let selection_end = zkite_pybridge::utf16_to_utf8_offset(&text, s.selection.end);
+        *out = Some(TextState { text, selection_start, selection_end });
     }
 }
 
@@ -226,11 +228,15 @@ impl TextInput {
     /// own idea of the caret position immediately after this returns rather than
     /// waiting on that event, purely to avoid a frame of visible lag.
     pub fn set_state(&self, text: &str, selection_start: i32, selection_end: i32) {
-        let Ok(c_text) = std::ffi::CString::new(text) else { return };
+        let encoded = cesu8::to_java_cesu8(text);
+        let Ok(c_text) = std::ffi::CString::new(encoded.as_ref()) else { return };
         let state = GameTextInputStateFfi {
             text_utf8: c_text.as_ptr(),
             text_length: c_text.as_bytes().len() as i32,
-            selection: GameTextInputSpanFfi { start: selection_start, end: selection_end },
+            selection: GameTextInputSpanFfi {
+                start: zkite_pybridge::utf8_to_utf16_offset(text, selection_start),
+                end: zkite_pybridge::utf8_to_utf16_offset(text, selection_end),
+            },
             // No composing region of our own to preserve — a tap that repositions
             // the cursor implicitly finishes whatever the IME was composing, the
             // same way a real EditText's own touch handling does.

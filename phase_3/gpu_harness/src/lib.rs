@@ -128,12 +128,11 @@ mod jni_bridge {
             return String::new();
         }
         let jni = **env;
-        let raw = (jni.GetStringUTFChars.unwrap())(env, s, std::ptr::null_mut());
-        if raw.is_null() {
-            return String::new();
-        }
-        let out = std::ffi::CStr::from_ptr(raw).to_string_lossy().into_owned();
-        (jni.ReleaseStringUTFChars.unwrap())(env, s, raw);
+        let raw = (jni.GetStringChars.unwrap())(env, s, std::ptr::null_mut());
+        if raw.is_null() { return String::new(); }
+        let len = (jni.GetStringLength.unwrap())(env, s) as usize;
+        let out = String::from_utf16_lossy(std::slice::from_raw_parts(raw, len));
+        (jni.ReleaseStringChars.unwrap())(env, s, raw);
         out
     }
 
@@ -328,6 +327,16 @@ fn load_font_set(dir: &str) -> Result<zkite_renderer::FontSet, String> {
             let _ = tx.send(Command::NewWindow { window, width, height, generation });
         } else {
             loge!("onSurfaceCreated: called before boot()");
+        }
+    }
+
+    #[no_mangle]
+    pub unsafe extern "C" fn Java_dev_zkite_gpuharness_Native_requestRedraw(
+        _env: *mut jni_sys::JNIEnv,
+        _class: jni_sys::jclass,
+    ) {
+        if let Some(tx) = SENDER.lock().unwrap().as_ref() {
+            let _ = tx.send(Command::Redraw);
         }
     }
 
@@ -544,6 +553,8 @@ fn load_font_set(dir: &str) -> Result<zkite_renderer::FontSet, String> {
         end: jni_sys::jint,
     ) {
         let text = jstr_to_string(env, text);
+        let start = zkite_pybridge::utf16_to_utf8_offset(&text, start);
+        let end = zkite_pybridge::utf16_to_utf8_offset(&text, end);
         let guard = SENDER.lock().unwrap();
         if let Some(tx) = guard.as_ref() {
             let _ = tx.send(Command::SelectionOverlayChanged { text, start, end });
@@ -565,6 +576,8 @@ fn load_font_set(dir: &str) -> Result<zkite_renderer::FontSet, String> {
         end: jni_sys::jint,
     ) {
         let text = jstr_to_string(env, text);
+        let start = zkite_pybridge::utf16_to_utf8_offset(&text, start);
+        let end = zkite_pybridge::utf16_to_utf8_offset(&text, end);
         let guard = SENDER.lock().unwrap();
         if let Some(tx) = guard.as_ref() {
             let _ = tx.send(Command::SelectionOverlayDismissed { text, start, end });

@@ -16,36 +16,8 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 
-/**
- * A real, fully visible {@code android.widget.EditText} laid on top of a focused
- * {@code TextField}'s own screen rect, for the duration of a selection gesture only
- * (../../PLAN.md §7.8) — the "native-EditText-overlay" approach chosen over
- * hand-building Flutter-style selection handles/copy-paste UI from scratch. Ordinary
- * tap-to-type editing never touches this class at all; it stays on the already-working
- * {@code GameTextInput}-driven path (../../PLAN.md §7.7). This class only enters the
- * picture on a long-press (`render_thread.rs`'s `dispatch_long_press`), and owns the
- * rest of that focus session once it does: real Android selection handles, a real
- * cut/copy/paste toolbar, and real system-clipboard integration, all for free from the
- * platform. Deliberately not trying to visually fuse with the GPU-rendered text engine
- * underneath (parley/vello) — matching the user's own stated risk tolerance going in
- * (see the PLAN.md section this implements): a brief switch to Android's native text
- * rendering during a deliberate, bounded "select text" interaction is an acceptable
- * trade for not hand-rolling selection UI, revisit only if that turns out to matter
- * more in practice than expected.
- *
- * <p><b>Why fully visible instead of a transparent/invisible overlay mirroring the GPU
- * text underneath:</b> handle/toolbar positions are driven by this {@code EditText}'s
- * *own* internal text layout, which uses a different shaping engine (Android's
- * {@code Layout}) than the GPU path ({@code parley}) — the two would only ever be
- * approximately aligned, never exactly. Rather than chase pixel-perfect agreement
- * between two independent text engines for glyphs nobody is meant to look at twice,
- * this overlay is simply styled to *resemble* the field (background/text color/size —
- * see {@link #show}) and shown opaque, fully occluding the GPU-painted field
- * underneath for as long as it's up. No double-image is possible by construction: the
- * overlay's rect always matches the field's own container rect exactly.
- *
- * <p>No lambdas / method references, same {@code javac -source 8} constraint as every
- * other Java file in this codebase — see {@code ZKiteActivity}'s class doc.
+/** Native selection handles, toolbar and clipboard for a focused TextField.
+ * Geometry and bundled typography come from the renderer, in physical pixels.
  */
 final class TextSelectionOverlay {
     private static final String TAG = "ZKiteGpuHarness";
@@ -222,7 +194,7 @@ final class TextSelectionOverlay {
      * `inputType` the previous session left behind, not inherit it.
      */
     void show(String text, int selStart, int selEnd, float x, float y, float w, float h, float textSizePx,
-            int textColor, int bgColor, boolean isPassword) {
+            int textColor, int bgColor, boolean isPassword, String geometry) {
         ViewGroup parent = (ViewGroup) surfaceView.getParent();
         if (parent == null || editText.getParent() == null) {
             Log.e(TAG, "showSelectionOverlay: overlay was never attached to a parent");
@@ -240,13 +212,34 @@ final class TextSelectionOverlay {
         lp.leftMargin = Math.round(x) + parentOffsetX;
         lp.topMargin = Math.round(y) + parentOffsetY;
         editText.setLayoutParams(lp);
-        editText.setBackground(new ColorDrawable(bgColor));
-        editText.setTextColor(textColor);
-        editText.setTextSize(TypedValue.COMPLEX_UNIT_PX, textSizePx);
-        editText.setPadding(0, 0, 0, 0);
         editText.setInputType(isPassword
                 ? (InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD)
                 : InputType.TYPE_CLASS_TEXT);
+        editText.setTextColor(textColor);
+        editText.setTextSize(TypedValue.COMPLEX_UNIT_PX, textSizePx);
+        editText.setGravity(android.view.Gravity.TOP | android.view.Gravity.LEFT);
+        try {
+            org.json.JSONObject g = new org.json.JSONObject(geometry);
+            String file = g.getString("font") + (g.getBoolean("bold") ? "-bold" : "") + ".ttf";
+            android.graphics.Typeface face = android.graphics.Typeface.createFromFile(
+                    new java.io.File(surfaceView.getContext().getFilesDir(), "fonts/" + file));
+            editText.setTypeface(g.getBoolean("italic")
+                    ? android.graphics.Typeface.create(face, android.graphics.Typeface.ITALIC) : face);
+            editText.setLetterSpacing((float) g.getDouble("spacing"));
+            editText.setPadding((int) Math.round(g.getDouble("left")),
+                    Math.max(0, (int) Math.round(g.getDouble("baseline") + editText.getPaint().getFontMetrics().ascent)),
+                    (int) Math.round(g.getDouble("right")), 0);
+            org.json.JSONArray radii = g.getJSONArray("radii");
+            float[] corners = new float[8];
+            for (int i = 0; i < 4; i++) corners[2*i] = corners[2*i+1] = (float) radii.getDouble(i);
+            android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+            background.setColor(bgColor);
+            background.setCornerRadii(corners);
+            editText.setBackground(background);
+        } catch (Exception e) {
+            Log.e(TAG, "Selection overlay style", e);
+            editText.setBackground(new ColorDrawable(bgColor));
+        }
 
         suppressCallbacks = true;
         editText.setText(text);
@@ -257,12 +250,22 @@ final class TextSelectionOverlay {
         visible = true;
         editText.setVisibility(View.VISIBLE);
         editText.requestFocus();
-        // `editText.performLongClick()` here was tried this session as a possible
-        // fix for the "two long-presses" gap (../../PLAN.md §7.8's own known-gaps
-        // note) — confirmed live, not assumed, that it does *not* bring up the
-        // floating toolbar (handles/selection already show from `setSelection`
-        // above regardless). Removed again since it did nothing; the finding
-        // itself is recorded in PLAN.md rather than left as dead code here.
+        // Android starts its selection action mode through this public action.
+        // Wait for layout and change the selection: an identical range is a no-op.
+        final int selectionStart = clamp(selStart, text.length());
+        final int selectionEnd = clamp(selEnd, text.length());
+        editText.post(new Runnable() {
+            @Override public void run() {
+                if (!visible) return;
+                suppressCallbacks = true;
+                editText.setSelection(selectionEnd);
+                android.os.Bundle args = new android.os.Bundle();
+                args.putInt(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, selectionStart);
+                args.putInt(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, selectionEnd);
+                editText.performAccessibilityAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_SELECTION, args);
+                suppressCallbacks = false;
+            }
+        });
         InputMethodManager imm =
                 (InputMethodManager) surfaceView.getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
         if (imm != null) {
@@ -275,6 +278,19 @@ final class TextSelectionOverlay {
      * {@code blur_text_field}. Idempotent: a no-op if nothing is currently showing. */
     void hide() {
         reportChangeAndHide();
+    }
+
+    void updateRect(float x, float y, float w, float h) {
+        if (!visible) return;
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) editText.getLayoutParams();
+        int left = Math.round(x) + parentOffsetX, top = Math.round(y) + parentOffsetY;
+        int width = Math.round(w), height = Math.round(h);
+        if (lp.leftMargin == left && lp.topMargin == top && lp.width == width && lp.height == height) return;
+        lp.leftMargin = left;
+        lp.topMargin = top;
+        lp.width = width;
+        lp.height = height;
+        editText.setLayoutParams(lp);
     }
 
     private static int clamp(int v, int len) {

@@ -40,10 +40,19 @@ pub enum Change {
 
 impl Manifest {
     pub fn scan(root: &Path) -> Result<Manifest> {
+        Self::scan_filtered(root, true)
+    }
+
+    /// Installed wheels may contain hidden resources or packages named `build`.
+    pub fn scan_dependencies(root: &Path) -> Result<Manifest> {
+        Self::scan_filtered(root, false)
+    }
+
+    fn scan_filtered(root: &Path, project: bool) -> Result<Manifest> {
         let mut files = BTreeMap::new();
         for entry in walkdir::WalkDir::new(root)
             .into_iter()
-            .filter_entry(|e| !is_ignored(e))
+            .filter_entry(|e| !project || !is_ignored(e))
         {
             let entry = entry.with_context(|| format!("walking {}", root.display()))?;
             if !entry.file_type().is_file() {

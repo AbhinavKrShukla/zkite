@@ -74,6 +74,27 @@ public class ZKiteSurfaceView extends SurfaceView implements SurfaceHolder.Callb
      * keyboard type) is actually needed, versus just re-showing the same one. */
     private String currentInputTypeSpec;
 
+    private final android.view.accessibility.AccessibilityManager.AccessibilityStateChangeListener accessibilityListener =
+            new android.view.accessibility.AccessibilityManager.AccessibilityStateChangeListener() {
+                @Override public void onAccessibilityStateChanged(boolean enabled) {
+                    if (enabled) Native.requestRedraw();
+                }
+            };
+
+    @Override protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        android.view.accessibility.AccessibilityManager manager =
+                (android.view.accessibility.AccessibilityManager) getContext().getSystemService(Context.ACCESSIBILITY_SERVICE);
+        if (manager != null) manager.addAccessibilityStateChangeListener(accessibilityListener);
+    }
+
+    @Override protected void onDetachedFromWindow() {
+        android.view.accessibility.AccessibilityManager manager =
+                (android.view.accessibility.AccessibilityManager) getContext().getSystemService(Context.ACCESSIBILITY_SERVICE);
+        if (manager != null) manager.removeAccessibilityStateChangeListener(accessibilityListener);
+        super.onDetachedFromWindow();
+    }
+
     public ZKiteSurfaceView(Context context) {
         super(context);
         getHolder().addCallback(this);
@@ -83,6 +104,17 @@ public class ZKiteSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         setFocusable(true);
         setFocusableInTouchMode(true);
         Native.setSurfaceView(this);
+    }
+
+    /** Called by JNI after presentation, never merely after layout. */
+    public void onFirstFrame() {
+        postOnAnimation(new Runnable() {
+            @Override public void run() {
+                if (getContext() instanceof ZKiteActivity) {
+                    ((ZKiteActivity) getContext()).onFirstFrame();
+                }
+            }
+        });
     }
 
     private static final class ApplySystemBarsRunnable implements Runnable {
@@ -482,6 +514,14 @@ public class ZKiteSurfaceView extends SurfaceView implements SurfaceHolder.Callb
      * {@code TextSelectionOverlay} ends up touching real {@code View}s, which
      * carry the identical thread assertion {@link #focusAndShowKeyboard} already
      * documents. */
+    public void updateSelectionOverlayRect(final float x, final float y, final float w, final float h) {
+        post(new Runnable() {
+            @Override public void run() {
+                selectionOverlay().updateRect(x, y, w, h);
+            }
+        });
+    }
+
     private static final class ShowSelectionOverlayRunnable implements Runnable {
         private final ZKiteSurfaceView view;
         private final String text;
@@ -495,10 +535,11 @@ public class ZKiteSurfaceView extends SurfaceView implements SurfaceHolder.Callb
         private final int textColor;
         private final int bgColor;
         private final boolean isPassword;
+        private final String geometry;
 
         ShowSelectionOverlayRunnable(ZKiteSurfaceView view, String text, int selStart, int selEnd,
                 float x, float y, float w, float h, float textSizePx, int textColor, int bgColor,
-                boolean isPassword) {
+                boolean isPassword, String geometry) {
             this.view = view;
             this.text = text;
             this.selStart = selStart;
@@ -511,24 +552,25 @@ public class ZKiteSurfaceView extends SurfaceView implements SurfaceHolder.Callb
             this.textColor = textColor;
             this.bgColor = bgColor;
             this.isPassword = isPassword;
+            this.geometry = geometry;
         }
 
         @Override
         public void run() {
             view.showSelectionOverlay(text, selStart, selEnd, x, y, w, h, textSizePx, textColor, bgColor,
-                    isPassword);
+                    isPassword, geometry);
         }
     }
 
     public void showSelectionOverlay(final String text, final int selStart, final int selEnd, final float x,
             final float y, final float w, final float h, final float textSizePx, final int textColor,
-            final int bgColor, final boolean isPassword) {
+            final int bgColor, final boolean isPassword, String geometry) {
         if (getHandler() != null && Thread.currentThread() != getHandler().getLooper().getThread()) {
             post(new ShowSelectionOverlayRunnable(this, text, selStart, selEnd, x, y, w, h, textSizePx,
-                    textColor, bgColor, isPassword));
+                    textColor, bgColor, isPassword, geometry));
             return;
         }
-        selectionOverlay().show(text, selStart, selEnd, x, y, w, h, textSizePx, textColor, bgColor, isPassword);
+        selectionOverlay().show(text, selStart, selEnd, x, y, w, h, textSizePx, textColor, bgColor, isPassword, geometry);
     }
 
     /** Called by native ({@code render_thread.rs}'s {@code blur_text_field}) when a

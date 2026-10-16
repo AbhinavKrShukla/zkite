@@ -178,6 +178,9 @@ pub fn run(args: DevArgs) -> Result<()> {
     let shell = dev_shell(backend);
     println!("zkite dev on the {} backend ({}) on {}", backend.name(), shell.package, device.serial);
 
+    // Resolve before changing anything on the phone; the connection reuses this cache.
+    crate::build_cmd::dev_dependencies(&args.project_dir, &abi)?;
+
     // Bind before installing or launching so an occupied port has no device side
     // effects. Keep the reverse mapping independent of the shell's fixed port.
     let listener = TcpListener::bind(("127.0.0.1", args.port))
@@ -325,8 +328,9 @@ fn serve_connection(stream: TcpStream, project_dir: &Path, expected: Backend, ab
     let mut watcher = ProjectWatcher::new(project_dir)?;
     let mut writer = stream;
     let mut last = Manifest::default();
-    let fresh = Manifest::scan(project_dir)?;
-    push_changes(&mut writer, project_dir, &last, &fresh, sync_files)?;
+    let mut dependencies = DevDependencies::load(project_dir, abi)?;
+    let fresh = dependencies.merge(Manifest::scan(project_dir)?)?;
+    push_changes_with_dependencies(&mut writer, project_dir, &dependencies, &last, &fresh, sync_files)?;
     last = fresh;
 
     let connected = Arc::new(AtomicBool::new(true));
@@ -348,6 +352,7 @@ fn serve_connection(stream: TcpStream, project_dir: &Path, expected: Backend, ab
         reader_connected.store(false, Ordering::Release);
     });
 
+    let mut dependencies_dirty = false;
     loop {
         anyhow::ensure!(connected.load(Ordering::Acquire), "Dev Shell disconnected; waiting to reconnect");
         let changes = watcher.next_change_batch(Duration::from_millis(250))?;
@@ -355,8 +360,23 @@ fn serve_connection(stream: TcpStream, project_dir: &Path, expected: Backend, ab
             continue;
         }
         let t0 = Instant::now();
-        let fresh = Manifest::scan(project_dir)?;
-        push_changes(&mut writer, project_dir, &last, &fresh, sync_files)?;
+        // Invalid edits leave the running app intact; fixing the declaration retries.
+        let declarations_changed = changes.iter().any(|change| {
+            let (Change::Added(path) | Change::Modified(path) | Change::Removed(path)) = change;
+            matches!(path.as_str(), "app.json" | "pyproject.toml" | "requirements.txt")
+        });
+        dependencies_dirty |= declarations_changed;
+        if dependencies_dirty {
+            match DevDependencies::load(project_dir, abi) {
+                Ok(value) => { dependencies = value; dependencies_dirty = false; },
+                Err(error) => { eprintln!("  dependency update failed: {error:#}"); continue; }
+            }
+        }
+        let fresh = match dependencies.merge(Manifest::scan(project_dir)?) {
+            Ok(value) => value,
+            Err(error) => { eprintln!("  project update failed: {error:#}"); continue; }
+        };
+        push_changes_with_dependencies(&mut writer, project_dir, &dependencies, &last, &fresh, sync_files)?;
         last = fresh;
         println!("  pushed {} change(s) in {:.0}ms: {}", changes.len(),
             t0.elapsed().as_secs_f64() * 1000.0, summarize(&changes));
@@ -375,9 +395,41 @@ fn summarize(changes: &[Change]) -> String {
         .join(", ")
 }
 
+#[derive(Default)]
+struct DevDependencies {
+    root: Option<std::path::PathBuf>,
+    manifest: Manifest,
+}
+
+impl DevDependencies {
+    fn load(project: &Path, abi: &str) -> Result<Self> {
+        let root = crate::build_cmd::dev_dependencies(project, abi)?;
+        let manifest = match &root {
+            Some(path) => Manifest::scan_dependencies(path)?,
+            None => Manifest::default(),
+        };
+        Ok(Self { root, manifest })
+    }
+
+    fn merge(&self, mut project: Manifest) -> Result<Manifest> {
+        for (path, hash) in &self.manifest.files {
+            anyhow::ensure!(!project.files.contains_key(path),
+                "dependency file {path} conflicts with a project file; rename the local file or remove the dependency");
+            project.files.insert(path.clone(), hash.clone());
+        }
+        Ok(project)
+    }
+}
+
 /// Reconcile the complete managed path set, push changed bytes, then reload once.
 /// Older shells omit sync_files in their hello and retain the original protocol.
+#[cfg(test)]
 fn push_changes(writer: &mut impl Write, project_dir: &Path, old: &Manifest, new: &Manifest, sync_files: bool) -> Result<()> {
+    push_changes_with_dependencies(writer, project_dir, &DevDependencies::default(), old, new, sync_files)
+}
+
+fn push_changes_with_dependencies(writer: &mut impl Write, project_dir: &Path, dependencies: &DevDependencies,
+    old: &Manifest, new: &Manifest, sync_files: bool) -> Result<()> {
     let changes = old.diff(new);
     if sync_files {
         let frame = Frame::Sync { paths: new.files.keys().map(String::as_str).collect() };
@@ -385,7 +437,10 @@ fn push_changes(writer: &mut impl Write, project_dir: &Path, old: &Manifest, new
     }
     for change in &changes {
         if let Change::Added(path) | Change::Modified(path) = change {
-            let bytes = std::fs::read(project_dir.join(path))
+            let root = if dependencies.manifest.files.contains_key(path) {
+                dependencies.root.as_deref().context("missing dependency directory")?
+            } else { project_dir };
+            let bytes = std::fs::read(root.join(path))
                 .with_context(|| format!("reading {path}"))?;
             let frame = Frame::File { path, content_b64: base64_encode(&bytes) };
             writeln!(writer, "{}", serde_json::to_string(&frame)?)?;
@@ -409,6 +464,60 @@ mod managed_files;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dependency_files_resources_and_removals_are_synchronized() {
+        let app = write_fixture(&[("main.py", "import library")]);
+        let packages = write_fixture(&[("library/__init__.py", "value = 42"),
+            ("library/.resource", "resource"), ("build/__init__.py", ""),
+            ("library-1.0.dist-info/METADATA", "Name: library")]);
+        let dependencies = DevDependencies {
+            root: Some(packages.path().to_path_buf()),
+            manifest: Manifest::scan_dependencies(packages.path()).unwrap(),
+        };
+        let source = Manifest::scan(app.path()).unwrap();
+        let merged = dependencies.merge(source.clone()).unwrap();
+        assert_eq!(merged.files.len(), 5);
+        let mut bytes = Vec::new();
+        push_changes_with_dependencies(&mut bytes, app.path(), &dependencies,
+            &Manifest::default(), &merged, true).unwrap();
+        let frames: Vec<serde_json::Value> = String::from_utf8(bytes).unwrap().lines()
+            .map(|line| serde_json::from_str(line).unwrap()).collect();
+        assert!(frames.iter().any(|f| f["path"] == "library/__init__.py"
+            && f["content_b64"] == base64_encode(b"value = 42")));
+        assert_eq!(frames.last().unwrap()["op"], "reload");
+        let device = tempfile::tempdir().unwrap();
+        let paths: Vec<String> = serde_json::from_value(frames[0]["paths"].clone()).unwrap();
+        managed_files::sync(device.path(), &paths).unwrap();
+        for frame in &frames {
+            if frame["op"] == "file" {
+                use base64::Engine;
+                let path = managed_files::destination(device.path(), frame["path"].as_str().unwrap()).unwrap();
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                let bytes = base64::engine::general_purpose::STANDARD.decode(frame["content_b64"].as_str().unwrap()).unwrap();
+                std::fs::write(path, bytes).unwrap();
+            }
+        }
+        assert_eq!(std::fs::read(device.path().join("library/.resource")).unwrap(), b"resource");
+        let mut bytes = Vec::new();
+        push_changes(&mut bytes, app.path(), &merged, &source, true).unwrap();
+        let frames: Vec<serde_json::Value> = String::from_utf8(bytes).unwrap().lines()
+            .map(|line| serde_json::from_str(line).unwrap()).collect();
+        assert_eq!(frames[0]["paths"], serde_json::json!(["main.py"]));
+        assert_eq!(frames[1]["op"], "reload");
+        let paths: Vec<String> = serde_json::from_value(frames[0]["paths"].clone()).unwrap();
+        managed_files::sync(device.path(), &paths).unwrap();
+        assert!(!device.path().join("library").exists());
+        assert!(device.path().join("main.py").is_file());
+    }
+
+    #[test]
+    fn dependency_collisions_fail_before_sending_files() {
+        let app = write_fixture(&[("library.py", "app")]);
+        let dependencies = DevDependencies { root: None, manifest: Manifest::scan(app.path()).unwrap() };
+        assert!(dependencies.merge(Manifest::scan(app.path()).unwrap()).unwrap_err()
+            .to_string().contains("conflicts with a project file"));
+    }
 
     #[test]
     fn managed_sync_removes_deleted_sources_and_previous_project_files_but_keeps_app_data() {
@@ -568,6 +677,7 @@ mod tests {
     fn write_fixture(files: &[(&str, &str)]) -> tempfile::TempDir {
         let td = tempfile::tempdir().unwrap();
         for (name, body) in files {
+            std::fs::create_dir_all(td.path().join(name).parent().unwrap()).unwrap();
             std::fs::write(td.path().join(name), body).unwrap();
         }
         td

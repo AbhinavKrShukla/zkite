@@ -44,22 +44,9 @@ import java.io.OutputStream;
  * explicitly its own not-yet-started item, ../../PLAN.md §5), so there is nothing
  * AppCompat would currently add. Revisit when IME work starts.
  *
- * <p><b>Asset unpacking runs synchronously in {@code onCreate}, unlike appshell's
- * background thread</b> — deliberately, not an oversight: `Native.boot` itself is
- * still safe to call directly from the UI thread (it only spawns a thread and
- * returns; the actual Python/font init happens on it — see `Native.boot`'s doc
- * comment), so the only reason appshell backgrounds its boot is to keep a
- * *synchronous* `Native.boot` HTML call off the UI thread. That doesn't apply here.
- * What backgrounding *would* risk instead: `ZKiteSurfaceView` could deliver
- * `surfaceCreated` before a background unpack finished, and `Native.onSurfaceCreated`
- * has nowhere to queue a window against a render thread that doesn't exist yet — see
- * `dev.zkite.gpuharness.Native`'s JNI bridge, which drops that event on the floor with
- * just a log line if `boot()` hasn't run. Staying synchronous sidesteps that race
- * entirely, at the cost of a real, one-time pause on first launch while
- * `python-stdlib.zip` unpacks (stamp-file guarded — every later launch skips this
- * completely). A production shell would likely want a splash screen or a queued-event
- * version of this instead; this harness accepts the simpler, honestly-worse tradeoff.
- * See ../../PLAN.md §5.
+ * <p>Assets are prepared off the UI thread. The surface is attached only after
+ * Native.boot publishes its command queue, so startup cannot lose surface events.
+ * A branded loading view remains above the surface until its first presented frame.
  */
 public class ZKiteActivity extends Activity {
     static final String TAG = "ZKiteGpuHarness";
@@ -77,6 +64,12 @@ public class ZKiteActivity extends Activity {
     static final int RELOAD_PORT = 8765;
     private SystemBarsView systemBarsView;
     private ZKiteSurfaceView surfaceView;
+    private FrameLayout content;
+    private View loadingView;
+    private android.widget.TextView loadingMessage;
+    private android.widget.ProgressBar loadingProgress;
+    private boolean nativeBooted;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -90,6 +83,12 @@ public class ZKiteActivity extends Activity {
         // references (see phase_1/PLAN.md's `android:configChanges` finding), and a
         // code-only `Window` feature request has no such dependency at all.
         requestWindowFeature(Window.FEATURE_NO_TITLE);
+        // The renderer pans the focused field using IME insets. Prevent Android
+        // from also panning the entire window when the selection editor takes focus.
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
+        }
+
 
         // Same explicit-load-before-the-app-lib order as appshell's ZKiteActivity:
         // `libzkitegpuharness.so` is linked against `libpython3.14.so` (both staged
@@ -99,90 +98,141 @@ public class ZKiteActivity extends Activity {
         System.loadLibrary("python3.14");
         System.loadLibrary("zkitegpuharness");
 
-        // Native.boot(...) — which populates lib.rs's SENDER — now runs *before*
-        // constructing ZKiteSurfaceView (../../PLAN.md §5, IME), not after: the
-        // view's own constructor calls Native.setSurfaceView(this), and that JNI
-        // entry silently drops its message if SENDER is still empty (same "no
-        // render thread yet" no-op every other pre-boot touch/surface event already
-        // has — see Native.java). Before this reordering, that's exactly what
-        // happened every single launch: the render thread never learned its own
-        // ZKiteSurfaceView object, so a tap on a TextField had nothing to call
-        // `focusAndShowKeyboard` on. Nothing else in this method depends on the
-        // surface view existing first — the unpacking/boot work below never
-        // touches it — so this reordering costs nothing.
-        try {
-            File pythonPrefix = new File(getFilesDir(), "python");
-            File zkitePkgDir = new File(getFilesDir(), "zkite_framework");
-            File appDir = new File(getFilesDir(), "app");
-            File fontDir = new File(getFilesDir(), "fonts");
+        showLoading();
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    File pythonPrefix = new File(getFilesDir(), "python");
+                    File zkitePkgDir = new File(getFilesDir(), "zkite_framework");
+                    File appDir = new File(getFilesDir(), "app");
+                    File fontDir = new File(getFilesDir(), "fonts");
 
-            unpackZipAssetOnce(STDLIB_ASSET, pythonPrefix, "stdlib-" + STAMP_VERSION);
-            linkExtensionModules(pythonPrefix);
-            unpackZipAssetOnce(ZKITE_PKG_ASSET, zkitePkgDir, "zkitepkg-" + STAMP_VERSION);
-            // Optional, and this is the one asset that legitimately can be absent:
-            // the Dev Shell ships no app at all — `zkite dev` pushes `main.py` over
-            // the reload socket into exactly this directory, and `runtime.py`'s
-            // `_zkite_setup_tree` already renders a "waiting for `zkite dev`…" tree
-            // when it finds no main. Treating a missing app.zip as fatal (which is
-            // what unpackZipAssetOnce's IOException would do, via the catch below
-            // that also skips Native.boot) would make the Dev Shell impossible.
-            if (!unpackOptionalZipAssetOnce(APP_ASSET, appDir, "app-" + STAMP_VERSION)) {
-                Log.i(TAG, "no bundled app.zip — dev shell mode, waiting for `zkite dev`");
+                    unpackZipAssetOnce(STDLIB_ASSET, pythonPrefix, "stdlib-" + STAMP_VERSION);
+                    linkExtensionModules(pythonPrefix);
+                    unpackZipAssetOnce(ZKITE_PKG_ASSET, zkitePkgDir, "zkitepkg-" + STAMP_VERSION);
+                    // Optional, and this is the one asset that legitimately can be absent:
+                    // the Dev Shell ships no app at all — `zkite dev` pushes `main.py` over
+                    // the reload socket into exactly this directory, and `runtime.py`'s
+                    // `_zkite_setup_tree` already renders a "waiting for `zkite dev`…" tree
+                    // when it finds no main. Treating a missing app.zip as fatal (which is
+                    // what unpackZipAssetOnce's IOException would do, via the catch below
+                    // that also skips Native.boot) would make the Dev Shell impossible.
+                    if (!unpackOptionalZipAssetOnce(APP_ASSET, appDir, "app-" + STAMP_VERSION)) {
+                        Log.i(TAG, "no bundled app.zip — dev shell mode, waiting for `zkite dev`");
+                    }
+                    unpackZipAssetOnce(FONTS_ASSET, fontDir, "fonts-" + STAMP_VERSION);
+
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() {
+                            if (!isFinishing() && !isDestroyed()) finishStartup();
+                        }
+                    });
+                } catch (final IOException error) {
+                    Log.e(TAG, "asset unpack failed", error);
+                    runOnUiThread(new Runnable() {
+                        @Override public void run() {
+                            if (!isFinishing() && !isDestroyed()) {
+                                loadingProgress.setVisibility(View.GONE);
+                                loadingMessage.setText("Unable to start. Please close and reopen the app.");
+                            }
+                        }
+                    });
+                }
             }
-            unpackZipAssetOnce(FONTS_ASSET, fontDir, "fonts-" + STAMP_VERSION);
+        }, "zkite-assets").start();
+    }
 
-            // This device's own calibrated tap-vs-drag distance (../../PLAN.md §5) —
-            // not a guessed pixel constant, since touch slop is
-            // density/OEM-dependent and every other Android view already uses
-            // exactly this value for exactly this decision.
-            float touchSlopPx = ViewConfiguration.get(this).getScaledTouchSlop();
-            // Same reasoning, for double-tap-to-select-word (../../PLAN.md §5/§7.5):
-            // real platform constants, not guessed ones, the same way touchSlopPx
-            // already is — `getScaledDoubleTapSlop()` is the max finger movement
-            // between the two taps, `getDoubleTapTimeout()` (a plain static, no
-            // density scaling) the max time between them.
-            float doubleTapSlopPx = ViewConfiguration.get(this).getScaledDoubleTapSlop();
-            float doubleTapTimeoutMs = ViewConfiguration.getDoubleTapTimeout();
+    private void showLoading() {
+        content = new FrameLayout(this);
+        content.setBackgroundColor(Color.WHITE);
+        android.widget.LinearLayout loading = new android.widget.LinearLayout(this);
+        loading.setOrientation(android.widget.LinearLayout.VERTICAL);
+        loading.setGravity(android.view.Gravity.CENTER);
+        loading.setBackgroundColor(Color.WHITE);
+        loading.setClickable(true);
+        float density = getResources().getDisplayMetrics().density;
+        android.widget.ImageView icon = new android.widget.ImageView(this);
+        icon.setImageDrawable(getApplicationInfo().loadIcon(getPackageManager()));
+        loading.addView(icon, new android.widget.LinearLayout.LayoutParams((int)(72*density), (int)(72*density)));
+        loadingMessage = new android.widget.TextView(this);
+        loadingMessage.setText(getApplicationInfo().loadLabel(getPackageManager()));
+        loadingMessage.setTextColor(Color.rgb(30, 41, 59));
+        loadingMessage.setTextSize(18);
+        loadingMessage.setGravity(android.view.Gravity.CENTER);
+        loadingMessage.setPadding((int)(24*density), (int)(20*density), (int)(24*density), (int)(20*density));
+        loading.addView(loadingMessage);
+        loadingProgress = new android.widget.ProgressBar(this);
+        loading.addView(loadingProgress, new android.widget.LinearLayout.LayoutParams((int)(28*density), (int)(28*density)));
+        loadingView = loading;
+        content.addView(loading, new FrameLayout.LayoutParams(-1, -1));
+        setContentView(content);
+    }
 
-            // This display's device-pixels-per-dp (../../PLAN.md §13). The renderer
-            // lays out in dp and scales once at paint; without this it laid out
-            // Tailwind's lengths against a device-pixel surface and every app came
-            // out 1/density too small on every real phone. Read from the platform
-            // rather than derived from DPI by hand: `density` is what the framework
-            // itself uses for every dp conversion (and what the WebView's own device
-            // pixel ratio follows), so taking it from anywhere else could disagree.
-            float density = getResources().getDisplayMetrics().density;
+    /** SurfaceView posts this only after the renderer has submitted a real frame. */
+    void onFirstFrame() {
+        if (loadingView == null || isDestroyed()) return;
+        final View loading = loadingView;
+        loadingView = null;
+        loading.animate().alpha(0f).setDuration(120).withEndAction(new Runnable() {
+            @Override public void run() { content.removeView(loading); }
+        }).start();
+    }
 
-            // This panel's actual refresh rate (../../PLAN.md §13.2). Same
-            // "ask the platform, don't guess" reasoning as touchSlopPx and density:
-            // a fling used to be paced by a hardcoded 16ms, which is both the wrong
-            // number on a 90/120Hz display and — more importantly — was being waited
-            // *in addition to* each frame's own work rather than inclusive of it.
-            float refreshRateHz = getWindowManager().getDefaultDisplay().getRefreshRate();
+    private void finishStartup() {
+        File pythonPrefix = new File(getFilesDir(), "python");
+        File zkitePkgDir = new File(getFilesDir(), "zkite_framework");
+        File appDir = new File(getFilesDir(), "app");
+        File fontDir = new File(getFilesDir(), "fonts");
+        // This device's own calibrated tap-vs-drag distance (../../PLAN.md §5) —
+        // not a guessed pixel constant, since touch slop is
+        // density/OEM-dependent and every other Android view already uses
+        // exactly this value for exactly this decision.
+        float touchSlopPx = ViewConfiguration.get(this).getScaledTouchSlop();
+        // Same reasoning, for double-tap-to-select-word (../../PLAN.md §5/§7.5):
+        // real platform constants, not guessed ones, the same way touchSlopPx
+        // already is — `getScaledDoubleTapSlop()` is the max finger movement
+        // between the two taps, `getDoubleTapTimeout()` (a plain static, no
+        // density scaling) the max time between them.
+        float doubleTapSlopPx = ViewConfiguration.get(this).getScaledDoubleTapSlop();
+        float doubleTapTimeoutMs = ViewConfiguration.getDoubleTapTimeout();
 
-            // The platform half of the cold-start measurement (../../PLAN.md §12.2
-            // item 1): process start → here is zygote fork, Activity creation and
-            // this shell's own asset unpack. The render thread logs the other half
-            // (`ZKITEPERF first-frame since_boot_call=`), so the two sum to
-            // process-start → first pixel with neither side reasoning about the
-            // other's clock. Split rather than combined because the split is the
-            // more useful shape: it separates what this backend controls from what
-            // the platform charges every app regardless of backend, which is exactly
-            // the distinction §12 has to draw to compare two backends fairly.
-            Log.i(TAG, "ZKITEPERF boot-call process_rel="
-                    + (SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime()) + "ms");
+        // This display's device-pixels-per-dp (../../PLAN.md §13). The renderer
+        // lays out in dp and scales once at paint; without this it laid out
+        // Tailwind's lengths against a device-pixel surface and every app came
+        // out 1/density too small on every real phone. Read from the platform
+        // rather than derived from DPI by hand: `density` is what the framework
+        // itself uses for every dp conversion (and what the WebView's own device
+        // pixel ratio follows), so taking it from anywhere else could disagree.
+        float density = getResources().getDisplayMetrics().density;
 
-            // Safe to call directly on the UI thread — see Native.boot's doc comment:
-            // this only spawns a thread, it does not itself do any Python init,
-            // rendering, or block on GPU init.
-            Native.boot(pythonPrefix.getAbsolutePath(), zkitePkgDir.getAbsolutePath(),
-                    appDir.getAbsolutePath(), fontDir.getAbsolutePath(), touchSlopPx,
-                    doubleTapSlopPx, doubleTapTimeoutMs, density, refreshRateHz);
+        // This panel's actual refresh rate (../../PLAN.md §13.2). Same
+        // "ask the platform, don't guess" reasoning as touchSlopPx and density:
+        // a fling used to be paced by a hardcoded 16ms, which is both the wrong
+        // number on a 90/120Hz display and — more importantly — was being waited
+        // *in addition to* each frame's own work rather than inclusive of it.
+        float refreshRateHz = getWindowManager().getDefaultDisplay().getRefreshRate();
 
-            startReloadServerIfDevShell(appDir);
-        } catch (IOException e) {
-            Log.e(TAG, "asset unpack failed", e);
-        }
+        // The platform half of the cold-start measurement (../../PLAN.md §12.2
+        // item 1): process start → here is zygote fork, Activity creation and
+        // this shell's own asset unpack. The render thread logs the other half
+        // (`ZKITEPERF first-frame since_boot_call=`), so the two sum to
+        // process-start → first pixel with neither side reasoning about the
+        // other's clock. Split rather than combined because the split is the
+        // more useful shape: it separates what this backend controls from what
+        // the platform charges every app regardless of backend, which is exactly
+        // the distinction §12 has to draw to compare two backends fairly.
+        Log.i(TAG, "ZKITEPERF boot-call process_rel="
+                + (SystemClock.elapsedRealtime() - Process.getStartElapsedRealtime()) + "ms");
+
+        // Safe to call directly on the UI thread — see Native.boot's doc comment:
+        // this only spawns a thread, it does not itself do any Python init,
+        // rendering, or block on GPU init.
+        Native.boot(pythonPrefix.getAbsolutePath(), zkitePkgDir.getAbsolutePath(),
+                appDir.getAbsolutePath(), fontDir.getAbsolutePath(), touchSlopPx,
+                doubleTapSlopPx, doubleTapTimeoutMs, density, refreshRateHz);
+
+        nativeBooted = true;
+        startReloadServerIfDevShell(appDir);
 
         surfaceView = new ZKiteSurfaceView(this);
         // Opt the window into a *stable, always-full-window* content frame before
@@ -208,11 +258,9 @@ public class ZKiteActivity extends Activity {
                             | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                             | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
         }
-        FrameLayout content = new FrameLayout(this);
         systemBarsView = new SystemBarsView(this);
-        content.addView(systemBarsView, new FrameLayout.LayoutParams(-1, -1));
-        content.addView(surfaceView, new FrameLayout.LayoutParams(-1, -1));
-        setContentView(content);
+        content.addView(systemBarsView, 0, new FrameLayout.LayoutParams(-1, -1));
+        content.addView(surfaceView, 1, new FrameLayout.LayoutParams(-1, -1));
         applySystemBars("{}");
         applyInsetsAsMargins(surfaceView);
         registerBackHandler();
@@ -311,7 +359,8 @@ public class ZKiteActivity extends Activity {
     @Override
     public void onBackPressed() {
         Log.i(TAG, "back: onBackPressed() called");
-        Native.onBackPressed();
+        if (nativeBooted) Native.onBackPressed();
+        else finish();
     }
 
     @Override
@@ -332,7 +381,7 @@ public class ZKiteActivity extends Activity {
         // resources rather than letting them outlive the Activity for however long the
         // process happens to stick around. Distinct from surfaceDestroyed (fires on
         // every rotation too, and only tears down the surface, not the GPU device).
-        Native.onDestroy();
+        if (nativeBooted) Native.onDestroy();
         super.onDestroy();
     }
 

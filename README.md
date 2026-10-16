@@ -106,11 +106,11 @@ Install into an isolated Python 3.14 virtual environment:
 ```bash
 # Linux / macOS
 python3.14 -m venv .venv && source .venv/bin/activate
-pip install zkite==1.0.0
+pip install zkite==1.1.1
 
 # Windows (PowerShell)
 py -3.14 -m venv .venv; .\.venv\Scripts\Activate.ps1
-pip install zkite==1.0.0
+pip install zkite==1.1.1
 ```
 
 ### 2. Scaffold a Project

@@ -241,6 +241,17 @@ impl BuiltTree {
             .collect()
     }
 
+    /// Clamp retained offsets after filtering, resizing or replacing scroll content.
+    /// Otherwise a shorter list can remain scrolled entirely past its last row.
+    pub fn clamp_scroll_offsets(&self, renderer: &Renderer, persistent: &mut FxHashMap<Arc<str>, (f32, f32)>) {
+        for (node, id) in &self.node_ids {
+            if let Some(offset) = persistent.get_mut(id) {
+                offset.0 = offset.0.clamp(0.0, renderer.max_scroll(*node, zkite_renderer::ScrollAxis::X));
+                offset.1 = offset.1.clamp(0.0, renderer.max_scroll_y(*node));
+            }
+        }
+    }
+
     /// The `zkite_py` node id an `accesskit::NodeId` (from an AccessKit
     /// `ActionRequest.target_node` — ../PLAN.md §5 item 2) was derived from, if this
     /// build has one. See `a11y_ids`'s own doc comment for why this can't just invert
@@ -496,7 +507,7 @@ fn build_node(renderer: &mut Renderer, node: &RawNode, ctx: &mut BuildCtx) -> No
 
     if let Some(zkite_id) = &node.id {
         let zkite_id: Arc<str> = Arc::from(zkite_id.as_str());
-        if is_text_field {
+        if is_text_field && !node.attrs.get("disabled").and_then(|v| v.as_bool()).unwrap_or(false) {
             ctx.text_fields.insert(zkite_id.clone());
         }
         if let Some(control) = control_of(node) {
@@ -554,7 +565,7 @@ fn control_of(node: &RawNode) -> Option<Control> {
     // container above it, which registers a plain `tap`. Without this, `control_at`'s
     // walk would find the box first and the render thread would synthesize a `change`
     // as well, which is the double-dispatch the label feature exists to remove.
-    if is_aria_hidden(node) {
+    if is_aria_hidden(node) || node.attrs.get("disabled").and_then(|v| v.as_bool()).unwrap_or(false) {
         return None;
     }
     if node.tag != "input" || node.attrs.contains_key("input_type") {
@@ -862,6 +873,24 @@ fn a11y_role(node: &RawNode) -> accesskit::Role {
     }
 }
 
+/// Android selection indices count UTF-16 units; the renderer counts UTF-8 bytes.
+/// Clamp to a character boundary, including malformed indices inside a surrogate pair.
+pub fn utf16_to_utf8_offset(text: &str, offset: i32) -> i32 {
+    let target = offset.max(0) as usize;
+    let mut units = 0;
+    for (byte, ch) in text.char_indices() {
+        if units + ch.len_utf16() > target { return byte as i32; }
+        units += ch.len_utf16();
+    }
+    text.len() as i32
+}
+
+pub fn utf8_to_utf16_offset(text: &str, offset: i32) -> i32 {
+    let mut byte = (offset.max(0) as usize).min(text.len());
+    while !text.is_char_boundary(byte) { byte -= 1; }
+    text[..byte].encode_utf16().count() as i32
+}
+
 /// Masks a `TextField(secure=True)`'s real text for display — one `*` per *byte*
 /// of `text`, not one per character. Deliberately not character-accurate: every
 /// byte-offset this native renderer computes against a field's text (IME selection
@@ -923,6 +952,53 @@ mod tests {
         let bold_bytes = std::fs::read(dir.join("DejaVuSans-Bold.ttf"))
             .expect("DejaVu Sans Bold must be installed for zkite_pybridge's tests");
         Renderer::new(zkite_renderer::FontSet::sans_only(bytes, bold_bytes)).unwrap()
+    }
+
+    #[test]
+    fn android_selection_offsets_round_trip_unicode_boundaries() {
+        let text = "Aéह😀z";
+        for byte in text.char_indices().map(|(i, _)| i).chain([text.len()]) {
+            let units = utf8_to_utf16_offset(text, byte as i32);
+            assert_eq!(utf16_to_utf8_offset(text, units), byte as i32);
+        }
+        assert_eq!(utf16_to_utf8_offset(text, 4), 6); // inside emoji's surrogate pair
+        assert_eq!(utf8_to_utf16_offset(text, 8), 3); // inside emoji's UTF-8 bytes
+        assert_eq!(utf16_to_utf8_offset(text, -1), 0);
+        assert_eq!(utf8_to_utf16_offset(text, 999), 6);
+    }
+
+    #[test]
+    fn shrinking_scroll_content_clamps_retained_offsets_before_paint() {
+        let mut renderer = test_renderer();
+        let tree = |height| RawNode::from_json(&format!(r#"{{
+            "tag":"div", "id":"list", "classes":"flex flex-col overflow-auto w-[100px] h-[100px]",
+            "children":[{{"tag":"div", "id":"content", "classes":"shrink-0 w-[300px] h-[{height}px]"}}]
+        }}"#)).unwrap();
+        let mut offsets = FxHashMap::default();
+        offsets.insert(Arc::<str>::from("list"), (180.0, 450.0));
+        let built = build(&mut renderer, &tree(600), None);
+        renderer.layout(built.root, 400.0, 800.0);
+        built.clamp_scroll_offsets(&renderer, &mut offsets);
+        assert_eq!(offsets["list"], (180.0, 450.0));
+        let built = build(&mut renderer, &tree(150), None);
+        renderer.layout(built.root, 400.0, 800.0);
+        built.clamp_scroll_offsets(&renderer, &mut offsets);
+        assert_eq!(offsets["list"], (180.0, 50.0));
+        let built = build(&mut renderer, &tree(20), None);
+        renderer.layout(built.root, 400.0, 800.0);
+        built.clamp_scroll_offsets(&renderer, &mut offsets);
+        assert_eq!(offsets["list"], (180.0, 0.0));
+    }
+
+    #[test]
+    fn disabled_inputs_cannot_capture_a_gesture_or_focus() {
+        let mut renderer = test_renderer();
+        for attrs in [r#""checked":true"#, r#""min":0,"max":100,"step":1,"value":20"#, r#""input_type":"text","value":"abc""#] {
+            let tree = RawNode::from_json(&format!(r#"{{"tag":"input","id":"control","attrs":{{"disabled":true,{attrs}}}}}"#)).unwrap();
+            let built = build(&mut renderer, &tree, None);
+            assert!(!built.is_text_field("control"));
+            assert!(built.control("control").is_none());
+        }
     }
 
     /// Reproduces, and locks in the fix for, a real bug found on a physical device

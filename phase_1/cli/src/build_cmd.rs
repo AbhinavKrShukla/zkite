@@ -828,6 +828,36 @@ fn resolve_and_stage_dependencies(
     Ok(())
 }
 
+/// Share the build resolver with the live development loop. Cache only complete
+/// installations; failed resolution never replaces a working dependency set.
+pub(crate) fn dev_dependencies(project_dir: &Path, abi: &str) -> Result<Option<PathBuf>> {
+    use sha2::{Digest, Sha256};
+    let doc = project_document(project_dir)?;
+    if doc.get("project").and_then(|p| p.get("dependencies")).is_none() {
+        return Ok(None);
+    }
+    let config = load_project_config(project_dir)?;
+    if config.dependencies.is_empty() { return Ok(None); }
+    let identity = serde_json::to_vec(&("dev-deps-v1", PY_VERSION, abi, config.identity.min_sdk, &config.dependencies))?;
+    let digest = format!("{:x}", Sha256::digest(identity));
+    let cache = project_dir.join(".zkite/dev-dependencies");
+    let installed = cache.join(digest);
+    if installed.join("complete").is_file() { return Ok(Some(installed.join("packages"))); }
+    std::fs::create_dir_all(&cache)?;
+    let stage = tempfile::tempdir_in(&cache)?;
+    let packages = stage.path().join("packages");
+    std::fs::create_dir(&packages)?;
+    let python = wheels::find_host_python().context("Python is required to resolve development dependencies")?;
+    println!("resolving development dependencies for {abi}…");
+    resolve_and_stage_dependencies(&config, &packages, stage.path(), &[abi.to_string()], &python)?;
+    std::fs::write(stage.path().join("complete"), b"1")?;
+    // Another dev process may have populated the same content-addressed entry.
+    if !installed.join("complete").is_file() {
+        std::fs::rename(stage.path(), &installed).context("saving development dependencies")?;
+    }
+    Ok(Some(installed.join("packages")))
+}
+
 fn ensure_same_wheels(left: &[PathBuf], right: &[PathBuf]) -> Result<()> {
     use sha2::{Digest, Sha256};
     fn fingerprint(paths: &[PathBuf]) -> Result<std::collections::BTreeMap<String, Vec<u8>>> {
@@ -1316,6 +1346,27 @@ mod tests {
         v.extend_from_slice(&[8, 2, 0, 0, 0]);
         v.extend_from_slice(&[0, 0, 0, 0]); // crc
         v
+    }
+
+    #[test]
+    #[ignore = "downloads real PyPI wheels; run explicitly when checking device dependencies"]
+    fn development_resolves_and_caches_requests_with_transitive_packages() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(project.path().join("app.json"),
+            r#"{"name":"dependency-check","dependencies":["requests==2.32.5"]}"#).unwrap();
+        let packages = dev_dependencies(project.path(), "arm64-v8a").unwrap().unwrap();
+        assert!(packages.join("requests/__init__.py").is_file());
+        assert!(packages.join("urllib3/__init__.py").is_file());
+        assert!(packages.join("certifi/cacert.pem").is_file());
+        assert!(packages.join("idna/__init__.py").is_file());
+        assert_eq!(Some(packages.clone()), dev_dependencies(project.path(), "arm64-v8a").unwrap());
+        let python = wheels::find_host_python().unwrap();
+        let status = std::process::Command::new(python).args(["-I", "-S", "-c",
+            "import sys; sys.path.insert(0, sys.argv[1]); import requests, importlib.metadata; assert requests.__version__ == '2.32.5'; assert importlib.metadata.version('requests') == '2.32.5'"])
+            .arg(&packages).status().unwrap();
+        assert!(status.success());
+        std::fs::write(project.path().join("app.json"), r#"{"name":"dependency-check","dependencies":[]}"#).unwrap();
+        assert!(dev_dependencies(project.path(), "arm64-v8a").unwrap().is_none());
     }
 
     #[test]

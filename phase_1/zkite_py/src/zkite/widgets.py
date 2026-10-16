@@ -37,13 +37,23 @@ class RenderContext:
     kept in sync with this one for no gain.
     """
 
-    __slots__ = ("handlers", "back_handlers", "overlays", "system_bars")
+    __slots__ = ("handlers", "back_handlers", "overlays", "system_bars", "key_scope", "overlay_scopes")
 
     def __init__(self) -> None:
         self.handlers: dict[str, dict[str, tuple[Callable[..., Any], Callable[[Any], Any] | None]]] = {}
         self.back_handlers: list[Callable[[], bool]] = []
         self.overlays: list[Overlay] = []
+        self.overlay_scopes: list[str] = []
+        self.key_scope = ""
         self.system_bars: dict | None = None
+
+    def node_id(self, path: str, key: str | None) -> str:
+        if key is None:
+            return path
+        key = str(key)
+        if self.key_scope and not key.startswith(self.key_scope + "/"):
+            return f"{self.key_scope}/{key}"
+        return key
 
     def register(
         self,
@@ -96,6 +106,7 @@ class RenderContext:
         may itself contain a widget that opens another one.
         """
         self.overlays.append(overlay)
+        self.overlay_scopes.append(self.key_scope)
 
     def dispatch_back(self) -> bool:
         """Offer a Back press to each handler, innermost first. `True` if consumed.
@@ -227,7 +238,23 @@ class Widget:
     def _tag_attrs(self) -> dict[str, Any]:
         return {}
 
+    def _state_classes(self, classes: str) -> str:
+        # Keep explicit app styling; otherwise disabled controls need a visible cue.
+        if self.props.get("disabled", False) and not any(c.startswith("opacity-") for c in classes.split()):
+            return f"{classes} opacity-50".strip()
+        return classes
+
+    def _disabled_events(self, ctx: RenderContext, node_id: str) -> list[str] | None:
+        if not self.props.get("disabled", False):
+            return None
+        # Consume taps so a disabled control cannot activate a tappable ancestor.
+        ctx.register(node_id, "tap", lambda: None)
+        return ["tap"]
+
     def _register_events(self, ctx: RenderContext, node_id: str) -> list[str]:
+        disabled = self._disabled_events(ctx, node_id)
+        if disabled is not None:
+            return disabled
         events = []
         for k, v in self.props.items():
             if k.startswith("on_") and callable(v):
@@ -280,12 +307,14 @@ class Widget:
         return "".join(parts)
 
     def render(self, ctx: RenderContext, path: str) -> str:
-        node_id = str(self.key) if self.key is not None else path
+        node_id = ctx.node_id(path, self.key)
         attrs: dict[str, Any] = {"id": node_id}
-        classes = self.classes()
+        classes = self._state_classes(self.classes())
         if classes:
             attrs["class"] = classes
         attrs.update(self._tag_attrs())
+        if self.props.get("disabled", False):
+            attrs.update({"disabled": True, "aria-disabled": "true"})
         events = self._register_events(ctx, node_id)
         if events:
             attrs["data-zkite-on"] = " ".join(sorted(events))
@@ -311,9 +340,11 @@ class Widget:
     # already use for HTML, just a different string. See phase_3/PLAN.md §5.
 
     def to_tree(self, ctx: RenderContext, path: str) -> dict:
-        node_id = str(self.key) if self.key is not None else path
+        node_id = ctx.node_id(path, self.key)
         events = self._register_events(ctx, node_id)
         attrs = self._tree_attrs()
+        if self.props.get("disabled", False):
+            attrs = {**attrs, "disabled": True}
         # Merged here rather than inside `_tree_attrs` because eleven widgets override
         # that method and build their own dict; folding `anim` in at the one shared
         # call site is what makes it work on all of them instead of on the ones that
@@ -325,7 +356,7 @@ class Widget:
         return {
             "tag": self.tag,
             "id": node_id,
-            "classes": self._tree_classes(),
+            "classes": self._state_classes(self._tree_classes()),
             "events": sorted(events),
             "attrs": attrs,
             "children": self._tree_children(ctx, node_id),
@@ -1146,6 +1177,9 @@ class Switch(Widget):
         `render_thread.rs::dispatch_tap_to` and `zkite-runtime.js`'s `extractPayload`,
         which produce the identical empty string) is discarded rather than parsed.
         """
+        disabled = self._disabled_events(ctx, node_id)
+        if disabled is not None:
+            return disabled
         if not self._is_container():
             return super()._register_events(ctx, node_id)
         # Deliberately *not* `super()._register_events()` plus a filter on its return
@@ -1700,6 +1734,9 @@ class Select(Widget):
         trigger too would give a tap on the trigger a second meaning. Any other `on_*`
         a caller passes registers normally, the same latitude `Switch` allows.
         """
+        disabled = self._disabled_events(ctx, node_id)
+        if disabled is not None:
+            return disabled
         events = []
         for prop, handler in self.props.items():
             if not (prop.startswith("on_") and callable(handler)):
@@ -1803,11 +1840,11 @@ class Select(Widget):
             self.popup(node_id).render(ctx, f"{node_id}.popup")
 
     def render(self, ctx: RenderContext, path: str) -> str:
-        self._prepare(ctx, str(self.key) if self.key is not None else path)
+        self._prepare(ctx, ctx.node_id(path, self.key))
         return super().render(ctx, path)
 
     def to_tree(self, ctx: RenderContext, path: str) -> dict:
-        self._prepare(ctx, str(self.key) if self.key is not None else path)
+        self._prepare(ctx, ctx.node_id(path, self.key))
         return super().to_tree(ctx, path)
 
     def _render_children(self, ctx: RenderContext, node_id: str) -> str:

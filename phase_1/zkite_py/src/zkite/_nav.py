@@ -43,6 +43,8 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
+import itertools
+import copy
 from typing import Any, Callable, Mapping, Protocol
 
 from . import _store as _store_mod
@@ -52,6 +54,7 @@ from .widgets import Child, RenderContext, Widget
 # A screen is an ordinary view function: it takes stores by annotation exactly the
 # way `view()` does, plus whatever params it was pushed with, and returns a Widget.
 Screen = Callable[..., Widget]
+_ENTRY_IDS = itertools.count()
 
 
 # ---- layer 2: what a navigator has to be ------------------------------------------
@@ -84,6 +87,8 @@ class Entry:
 
     screen: str
     params: Mapping[str, Any] = dataclasses.field(default_factory=dict)
+    key: str | None = dataclasses.field(default=None, compare=False)
+
 
 
 class NavigationHost(Protocol):
@@ -179,9 +184,18 @@ class Navigator:
         entry = self.current_entry()
         return entry.screen if entry is not None else None
 
+    def _entry(self, screen: Screen | str, params: Mapping[str, Any]) -> Entry:
+        name = screen_name(screen)
+        routes = getattr(self, "_routes", None)
+        if routes is not None:
+            if name not in routes:
+                raise KeyError(f"Unknown screen {name!r}. Known screens: {', '.join(sorted(routes))}")
+            _resolve_screen_args(routes[name], params, self)
+        return Entry(name, dict(params), key=str(next(_ENTRY_IDS)))
+
     def push(self, screen: Screen | str, **params: Any) -> None:
         """Put a screen on top of the stack."""
-        self.update(stack=[*self.stack, Entry(screen_name(screen), params)])
+        self.update(stack=[*self.stack, self._entry(screen, params)])
 
     def pop(self) -> bool:
         """Remove the top screen. `False` (and no re-render) if it was the last one.
@@ -200,7 +214,7 @@ class Navigator:
 
     def replace(self, screen: Screen | str, **params: Any) -> None:
         """Swap the top screen without growing the stack."""
-        self.update(stack=[*self.stack[:-1], Entry(screen_name(screen), params)])
+        self.update(stack=[*self.stack[:-1], self._entry(screen, params)])
 
     def pop_to_root(self) -> bool:
         if len(self.stack) <= 1:
@@ -210,7 +224,7 @@ class Navigator:
 
     def reset(self, screen: Screen | str, **params: Any) -> None:
         """Clear the stack down to a single screen — for a sign-out, or a deep link."""
-        self.update(stack=[Entry(screen_name(screen), params)])
+        self.update(stack=[self._entry(screen, params)])
 
     # ---- seeding -----------------------------------------------------------------
 
@@ -224,7 +238,7 @@ class Navigator:
         — the frame being built is the one that will show it.
         """
         if not self.stack:
-            self.stack = [Entry(screen_name(screen), {})]
+            self.stack = [self._entry(screen, {})]
 
 
 # ---- the widget --------------------------------------------------------------------
@@ -243,11 +257,8 @@ class Nav(Widget):
     **Only the current screen is built.** `Nav`'s children are screen *functions*,
     not widgets, and exactly one of them is called per render — so stack depth
     costs nothing, and a screen that is three levels down is not paying to keep the
-    two below it alive. This is also why there are no transition animations here:
-    animating between screens needs both trees alive at once, and there is no
-    animation driver anywhere in the framework yet (phase_3/PLAN.md §15.1). Building
-    half of it would have meant keeping every screen materialised for a feature that
-    cannot currently run.
+    two below it alive. Native screens have a short entrance animation by default;
+    `transition=False` disables it. A screen's own root animation takes precedence.
 
     A different navigator is passed with `host=`; the default is the process-wide
     `Navigator` singleton, which is the same instance a screen gets injected by
@@ -277,6 +288,7 @@ class Nav(Widget):
         class_name: str = "",
         *screens: Screen,
         host: NavigationHost | None = None,
+        transition: bool = True,
         key: str | None = None,
         **props: Any,
     ):
@@ -300,9 +312,14 @@ class Nav(Widget):
                 )
             self.screens[name] = s
         self.root_name = screen_name(screens[0])
+        self.transition = transition
+        self._entry_key = ""
         self.host: NavigationHost = (
             host if host is not None else _store_mod.get_instance(Navigator)
         )
+        if isinstance(self.host, Navigator):
+            self.host._routes = self.screens
+
 
     # ---- resolution ----------------------------------------------------------------
 
@@ -330,7 +347,11 @@ class Nav(Widget):
                 "Every screen a navigator can reach has to be listed on the Nav that "
                 "renders it."
             )
-        return fn(**_resolve_screen_args(fn, entry.params))
+        self._entry_key = entry.key if entry.key is not None else entry.screen
+        child = fn(**_resolve_screen_args(fn, entry.params, self.host if isinstance(self.host, Navigator) else None))
+        if not isinstance(child, Widget):
+            raise TypeError(f"screen {entry.screen}() must return a Widget, got {type(child).__name__}")
+        return child
 
     def _register_back(self, ctx: RenderContext) -> None:
         ctx.register_back(self.host.handle_back)
@@ -341,22 +362,32 @@ class Nav(Widget):
     # `RenderContext.dispatch_back`. Nesting works out for free from the walk order
     # rather than needing anything to track depth.
 
-    def _render_children(self, ctx: RenderContext, node_id: str) -> str:
+    def _render_screen(self, ctx: RenderContext, node_id: str, tree: bool):
         self._register_back(ctx)
         child = self._current_widget()
         if child is None:
-            return ""
-        return child.render(ctx, f"{node_id}.0")
+            return None
+        scope = f"{node_id}/screen/{self._entry_key}"
+        previous_scope = ctx.key_scope
+        ctx.key_scope = scope
+        try:
+            if tree and self.transition and not child.props.get("anim"):
+                from ._anim import Anim
+                child = copy.copy(child)
+                child.props = {**child.props, "anim": Anim.enter(translate_x=(12, 0), ms=160, ease="out")}
+            return child.to_tree(ctx, scope + "/root") if tree else child.render(ctx, scope + "/root")
+        finally:
+            ctx.key_scope = previous_scope
+
+    def _render_children(self, ctx: RenderContext, node_id: str) -> str:
+        return self._render_screen(ctx, node_id, False) or ""
 
     def _tree_children(self, ctx: RenderContext, node_id: str) -> list[dict]:
-        self._register_back(ctx)
-        child = self._current_widget()
-        if child is None:
-            return []
-        return [child.to_tree(ctx, f"{node_id}.0")]
+        child = self._render_screen(ctx, node_id, True)
+        return [child] if child is not None else []
 
 
-def _resolve_screen_args(fn: Screen, params: Mapping[str, Any]) -> dict[str, Any]:
+def _resolve_screen_args(fn: Screen, params: Mapping[str, Any], navigator: Navigator | None = None) -> dict[str, Any]:
     """Bind a screen function's parameters: stores by annotation, the rest by name.
 
     A screen is a view function, so store injection has to work identically to
@@ -376,7 +407,7 @@ def _resolve_screen_args(fn: Screen, params: Mapping[str, Any]) -> dict[str, Any
     for name, param in sig.parameters.items():
         ann = param.annotation
         if ann is not inspect.Parameter.empty and _store_mod.is_store(ann):
-            bound[name] = _store_mod.get_instance(ann)
+            bound[name] = navigator if ann is Navigator and navigator is not None else _store_mod.get_instance(ann)
             continue
         if name in params:
             bound[name] = params[name]
@@ -388,6 +419,9 @@ def _resolve_screen_args(fn: Screen, params: Mapping[str, Any]) -> dict[str, Any
             f"@store class to have it injected, or push it — "
             f"nav.push({fn.__name__}, {name}=...)"
         )
+    unexpected = set(params) - set(sig.parameters)
+    if unexpected:
+        raise TypeError(f"screen {fn.__name__}() got unexpected parameters: {', '.join(sorted(unexpected))}")
     return bound
 
 

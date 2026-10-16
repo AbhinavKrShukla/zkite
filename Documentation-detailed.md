@@ -1,8 +1,8 @@
 # ZKite 1.1 — detailed learner documentation
 
-This is the learner-facing knowledge base for ZKite 1.1.0. It describes the implemented native Android framework, its public API, everyday workflows, and practical debugging. It intentionally contains no framework source listings, private release infrastructure, signing material, or credentials. Commands are terminal instructions; API names and configuration keys are reference material.
+This is the learner-facing knowledge base for ZKite 1.1.1. It describes the implemented native Android framework, its public API, everyday workflows, and practical debugging. It intentionally contains no framework source listings, private release infrastructure, signing material, or credentials. Commands are terminal instructions; API names and configuration keys are reference material.
 
-This guide covers **1.1.0**, prepared after the published 1.0.0 release. Commands pinned to 1.1.0 require its PyPI upload or the prepared local wheels. The latest two source commits (`4e7d592` and `4c29ca0`) cover stable-release lifecycle/text-selection fixes and the new app configuration, assets, networking and release-error behavior. See [release notes](CHANGELOG.md) for the changes and [release status](docs/status.md) for tested scope.
+This guide covers **1.1.1**, prepared after the published 1.1.0 release. See [release notes](CHANGELOG.md) and [release status](docs/status.md) for changes and tested scope.
 
 ## Contents and suggested learning order
 
@@ -94,7 +94,7 @@ Run these commands in order:
 
 1. `python3.14 -m venv .venv`
 2. `. .venv/bin/activate`
-3. `python -m pip install zkite==1.1.0`
+3. `python -m pip install zkite==1.1.1`
 4. `zkite --version`
 5. `adb version`
 
@@ -105,17 +105,17 @@ Install Android platform-tools separately if `adb` is unavailable, and add its d
 In PowerShell, run:
 
 1. `py -3.14 -m venv .venv`
-2. `.\.venv\Scripts\python.exe -m pip install zkite==1.1.0`
+2. `.\.venv\Scripts\python.exe -m pip install zkite==1.1.1`
 3. `.\.venv\Scripts\zkite.exe --version`
 4. `adb version`
 
 These commands do not require activating a PowerShell script. If your organization restricts script execution, continue using the explicit executable paths. After moving into a project one directory below the environment, the corresponding CLI path is `..\.venv\Scripts\zkite.exe`.
 
-### Install before the 1.1.0 upload
+### Install before the 1.1.1 upload
 
-For the previous stable version, use `zkite==1.0.0`. It does not include the new 1.1.0 scaffold and HTTPS image loader.
+Until 1.1.1 is uploaded, the published stable version is `zkite==1.1.0`.
 
-For locally supplied 1.1.0 wheels, put the compatible host CLI wheel and both shared wheels in one directory. Run `python -m pip install --no-index --find-links PATH_TO_WHEELS zkite==1.1.0`. Use the actual directory path, and quote it if it contains spaces. Pip selects the CLI wheel matching the host and installs the matching dependencies. An Android APK is not a pip-installable file.
+For locally supplied 1.1.1 wheels, put the compatible host CLI wheel and both shared wheels in one directory. Run `python -m pip install --no-index --find-links PATH_TO_WHEELS zkite==1.1.1`. Use the actual directory path, and quote it if it contains spaces. Pip selects the CLI wheel matching the host and installs the matching dependencies. An Android APK is not a pip-installable file.
 
 ### Verify installation
 
@@ -375,14 +375,32 @@ Android still owns the time, battery display, navigation buttons, gesture behavi
 | `pop` | Return to the preceding screen when one exists. |
 | `replace` | Replace the current destination. |
 | `pop_to_root` | Return to the root screen. |
-| `reset` | Replace the navigation stack with a chosen stack. |
+| `reset(screen, **params)` | Replace the whole stack with one destination. |
 | `current_entry` | Inspect the active entry and its parameters. |
 
 Pass destination parameters that match what the receiving screen expects. Prefer small values that identify the data the screen needs, rather than treating the navigation stack as a large data store. Only the active screen is built as the current view.
 
 Android Back can dismiss an active overlay before popping navigation. At the root, unhandled Back can leave the activity. Test this explicitly; a button that visually says Back should have behavior consistent with the user's expectations.
 
-Navigation state is not automatically durable across process termination. Deep links, automatic screen transitions, and every advanced routing pattern are not promised by this base. `Entry` represents a route and its parameters; `NavigationHost` is an integration protocol for specialized hosts, not something a beginner must implement to use ordinary navigation.
+After a `Nav` registers its screens, invalid destinations and missing or unexpected parameters raise before changing the stack. Each pushed entry has its own widget identity, including explicit keys, so repeated detail screens do not share input focus or scroll state. Returning to an entry preserves its identity. A nested `Nav(host=...)` injects that host into its screens' `Navigator` parameters.
+
+Native screens use a 160 ms entrance animation. Set `Nav("flex-1", home, detail, transition=False)` to disable it; an explicit animation on the screen's root takes precedence. Only the incoming screen is built.
+
+```python
+from zkite import Button, Column, Nav, Navigator, Text
+
+def home(nav: Navigator):
+    return Button("p-4", "Open item", on_tap=lambda: nav.push(detail, item_id=42))
+
+def detail(nav: Navigator, item_id: int):
+    return Column("gap-4", Text("", f"Item {item_id}"),
+                  Button("p-4", "Back", on_tap=nav.pop))
+
+def view():
+    return Nav("flex-1", home, detail)
+```
+
+Navigation state is not automatically durable across process termination. Deep links and advanced routing policies are not promised by this base. `Entry` represents a route and its parameters; `NavigationHost` is an integration protocol for specialized hosts, not something a beginner must implement to use ordinary navigation.
 
 ## Overlays and selection
 
@@ -473,7 +491,9 @@ For pip projects, create `requirements.txt` with one package requirement per lin
 
 For uv or other package managers, use `[project].dependencies` in `pyproject.toml`. An explicit `dependencies` array in `app.json` overrides that list. Requirements from `requirements.txt` are added to either list; avoid conflicting constraints. ZKite does not currently consume uv lockfiles, so use pinned requirements when exact versions matter.
 
-Declare application dependencies in these files. The build resolves the dependency graph, including transitive requirements, for the requested Android architectures. A package installed in your desktop environment is not automatically included in the Android app.
+Declare application dependencies in these files. Both `zkite dev` and builds resolve the dependency graph, including transitive requirements, for the requested Android architectures. A package installed in your desktop environment is not automatically included in the Android app.
+
+`zkite dev` sends resolved packages, metadata and resource files before loading the app. Editing `requirements.txt`, `[project].dependencies`, or `app.json` dependencies refreshes the package set and reloads the preview; removed packages are removed from the managed files on the phone. Invalid dependency changes report an error and leave the previous app running. Ordinary source edits reuse the installed package set. Resolutions are cached under `.zkite/dev-dependencies`; pin versions for repeatability. To refresh an unchanged, unpinned requirement, stop dev, remove that generated cache directory, and restart dev.
 
 The supported dependency path is compatible pure-Python wheels. A package may look like Python but depend on compiled extensions or desktop operating-system services. Desktop wheels for Windows or Linux cannot simply be copied into Android. An unavailable or unsupported dependency should fail the build rather than be silently omitted.
 
@@ -493,7 +513,7 @@ This flag concerns standard-library pruning. It does not add unsupported native 
 
 ## Data and application lifecycle
 
-The 1.0.0 stabilization commit preserves queued render commands and rejects expired Android surfaces during startup/resume. Text-selection callbacks also guard against an uninitialized overlay owner. These fixes are retained in 1.1.0; they do not make in-memory state persistent.
+The 1.0.0 stabilization commit preserves queued render commands and rejects expired Android surfaces during startup/resume. Text-selection callbacks also guard against an uninitialized overlay owner. These fixes are retained in 1.1.1; they do not make in-memory state persistent.
 
 Android can pause, resume, or terminate an app independently of the development terminal. A well-behaved app must tolerate leaving the foreground and returning. In-memory stores represent the current process state; they are not a guarantee of survival after process termination.
 
@@ -642,7 +662,7 @@ Do not automatically uninstall an existing app to hide an update failure. Uninst
 
 ### Development reload problems
 
-Confirm that `zkite dev` is still running, the device is authorized, and the preview is the foreground app you are inspecting. Check whether the changed file is one of the supported top-level source files. Configuration, dependencies, and launcher resources require preparing a new package rather than only a Python reload.
+Confirm that `zkite dev` is still running, the device is authorized, and the preview is the foreground app you are inspecting. Check whether the changed file is one of the supported top-level source files. Dependency declarations refresh automatically. Android permissions, package identity, and launcher resources require restarting `zkite dev` to prepare a new preview package.
 
 If a port is occupied, stop the old development process you own or choose another port. If the device disconnects, reconnect and inspect the command's reconnect messages. Do not start several competing preview sessions for the same device while diagnosing one failure.
 

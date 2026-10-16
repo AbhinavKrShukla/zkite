@@ -147,7 +147,14 @@ class App:
         while i < len(self.ctx.overlays):
             overlay = self.ctx.overlays[i]
             path = f"__zkite_overlay.{i}"
-            out.append(overlay.layer_tree(self.ctx, path) if tree_mode else overlay.layer_html(self.ctx, path))
+            previous_scope = self.ctx.key_scope
+            self.ctx.key_scope = self.ctx.overlay_scopes[i]
+            if self.ctx.key_scope:
+                path = f"{self.ctx.key_scope}/{path}"
+            try:
+                out.append(overlay.layer_tree(self.ctx, path) if tree_mode else overlay.layer_html(self.ctx, path))
+            finally:
+                self.ctx.key_scope = previous_scope
             i += 1
         return out
 

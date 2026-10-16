@@ -12,10 +12,10 @@ historical proposals and experiments; they are not installation instructions.
 
 The complete distribution is `zkite`; it installs matching `zkite-framework` and
 `zkite-payload` dependencies. The command and Python import are both `zkite`.
-The current source targets `1.1.0`, following the published `1.0.0`. The new wheels
-await manual publication. After upload, install with `python -m pip install zkite==1.1.0`.
-Before upload, use the matching local wheels in `publish-dist/1.1.0/` as below,
-or install the previous stable version with `python -m pip install zkite==1.0.0`.
+The current source targets `1.1.1`, following the published `1.1.0`. The new wheels
+await manual publication. After upload, install with `python -m pip install zkite==1.1.1`.
+Before upload, use the matching local wheels in `publish-dist/1.1.1/` as below,
+or install the previous stable version with `python -m pip install zkite==1.1.0`.
 
 For the extended learner knowledge base, see
 [Documentation-detailed.md](Documentation-detailed.md). It covers public concepts,
@@ -39,7 +39,7 @@ wheels. All three must have the same version and be in `publish-dist`:
 
 ```powershell
 py -3.14 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --no-index --find-links publish-dist/1.1.0 zkite==1.1.0
+.\.venv\Scripts\python.exe -m pip install --no-index --find-links publish-dist/1.1.1 zkite==1.1.1
 adb devices
 .\.venv\Scripts\zkite.exe new hello
 cd hello
@@ -60,7 +60,7 @@ Use the CLI wheel built for your OS and CPU:
 ```bash
 python3.14 -m venv .venv
 . .venv/bin/activate
-python -m pip install --no-index --find-links publish-dist/1.1.0 zkite==1.1.0
+python -m pip install --no-index --find-links publish-dist/1.1.1 zkite==1.1.1
 adb devices
 zkite new hello
 cd hello
@@ -471,7 +471,7 @@ cargo build --release --locked --manifest-path phase_1/cli/Cargo.toml
 ABI=arm64-v8a ZKITE_DEVSHELL=1 phase_3/gpu_harness/scripts/build_apk.sh
 ABI=x86_64 ZKITE_DEVSHELL=1 phase_3/gpu_harness/scripts/build_apk.sh
 python phase_1/cli/scripts/stage_payload.py release/payload --abi arm64-v8a --abi x86_64
-python phase_1/cli/scripts/build_wheels.py --payload release/payload --out release/wheels --version 1.1.0 --verify
+python phase_1/cli/scripts/build_wheels.py --payload release/payload --out release/wheels --version 1.1.1 --verify
 ```
 
 Put JDK 17's `bin` on `PATH` and set `JAVA_HOME` for those release steps. Staging

@@ -1,33 +1,29 @@
 # Release status
 
-The current source targets **1.1.0**, following 1.0.0. The prepared wheels have
-not been uploaded by the release-preparation tooling.
+Version **1.1.1** is prepared after published 1.1.0. Upload remains a manual step.
 
-## Supported release set
+The release set contains Linux x86_64 (glibc 2.28+), Windows x86_64, and shared
+framework/payload wheels. Android runtimes cover arm64-v8a and x86_64, API 26+,
+targeting API 36. The native backend is supported; WebView remains experimental.
+Compatible pure-Python dependencies are supported. No macOS wheel is included.
 
-- Linux x86_64, glibc 2.28 or newer.
-- Windows x86_64; tested under Wine, native Windows qualification pending.
-- Android API 26+, targeting API 36, arm64-v8a and x86_64.
-- CPython 3.14 and compatible pure-Python dependencies.
+## Validation
 
-The local 1.1.0 set does not include macOS wheels. Native-extension packages,
-iOS support and advanced platform integrations remain outside the released scope.
-The WebView backend is experimental; native is the supported default.
+The UI audit passed 219 framework tests, 74 renderer tests and 47 bridge tests.
+The dependency changes passed 101 CLI tests and an additional real Requests
+resolution/import test. The actual dev CLI was tested with a simulated reload
+socket for dependency updates/removal and one-file source reloads.
 
-## Validation for 1.1.0
+A minimal final Moto G54 / Android 15 test verified Requests and transitive imports,
+package metadata, certificate resources and hot reload through `zkite dev`.
+Earlier device checks covered input selection, Unicode editing, list interaction,
+navigation, splash, and repeated background/resume. See [audit](ui-audit.md).
 
-Host regression gates passed, including renderer and Python bridge tests. The
-framework pytest suite passed 218 tests and 66 subtests. All four wheels passed
-strict Twine checks and wheel integrity checks. Auditwheel confirmed Linux
-manylinux_2_28_x86_64 compatibility. Fresh Linux and Windows/Wine installations
-built APKs using the packaged runtime outside the checkout.
+All four wheels passed strict Twine metadata and RECORD/hash checks. Auditwheel
+confirmed the Linux glibc 2.28 baseline. Fresh Linux and Windows/Wine installations
+imported the framework and built standalone APKs outside the checkout.
 
-A Moto G54 running Android 15 displayed an HTTPS image and completed a requests
-HTTPS call from an app built with installed 1.1.0 wheels. APK v2/v3 signatures
-passed apksigner. A two-ABI AAB passed Google bundletool 1.18.3 validation.
-Earlier device checks covered startup, resume, retained app data and text selection.
-These checks do not establish Play acceptance or coverage of every device.
-
-Release logs and screenshots are local build outputs under
-`release/validation-1.1.0/`; they are not required to clone or build the framework.
-See [publishing](../PUBLISHING.md) and [release notes](../CHANGELOG.md).
+Release packaging evidence is stored locally in `release/validation-1.1.1/`.
+Native Windows and other Android versions/devices are not newly qualified by this
+release; Windows packaging can be smoke-tested under Wine. PyPI upload does not
+establish Play Store acceptance or support for arbitrary native-extension packages.

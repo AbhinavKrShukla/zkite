@@ -250,6 +250,7 @@ pub enum Command {
     /// thread can later call `focusAndShowKeyboard`/`blurAndHideKeyboard` on it — see
     /// ../PLAN.md §5 (IME).
     SurfaceViewReady(GlobalRef),
+    Redraw,
     /// `Listener.stateChanged` fired with a new IME text state, already decoded into
     /// plain owned data by `lib.rs`'s `Native_onTextInputEvent` (on the UI thread —
     /// see `text_input.rs`'s module doc for why `GameTextInput` itself never crosses
@@ -835,7 +836,7 @@ fn resolve_finish_activity_method(
 /// Looks up `ZKiteSurfaceView.showSelectionOverlay(...)`/`.hideSelectionOverlay()`
 /// once (../PLAN.md §7.8) — same `GetObjectClass`+`GetMethodID` pattern as
 /// `resolve_surface_view_methods`/`resolve_set_selection_method`. `show`'s type
-/// descriptor (`(Ljava/lang/String;IIFFFFFIIZ)V`) must match `ZKiteSurfaceView.
+/// descriptor (`(Ljava/lang/String;IIFFFFFIIZLjava/lang/String;)V`) must match `ZKiteSurfaceView.
 /// showSelectionOverlay`'s real parameter list exactly, in order — text, start,
 /// end, x, y, w, h, textSizePx, textColor, bgColor, isPassword (../PLAN.md §5/§7.5
 /// — lets the overlay's own real `EditText` mask via a real `TYPE_TEXT_VARIATION_
@@ -849,7 +850,7 @@ fn resolve_selection_overlay_methods(
         let class = (vtable.GetObjectClass?)(env, view);
         let get_mid = vtable.GetMethodID?;
         let show_name = std::ffi::CString::new("showSelectionOverlay").unwrap();
-        let show_sig = std::ffi::CString::new("(Ljava/lang/String;IIFFFFFIIZ)V").unwrap();
+        let show_sig = std::ffi::CString::new("(Ljava/lang/String;IIFFFFFIIZLjava/lang/String;)V").unwrap();
         let hide_name = std::ffi::CString::new("hideSelectionOverlay").unwrap();
         let hide_sig = std::ffi::CString::new("()V").unwrap();
         let show_mid = get_mid(env, class, show_name.as_ptr(), show_sig.as_ptr());
@@ -1409,6 +1410,7 @@ struct State {
     /// Set once the first frame has actually been painted, so the cold-start line is
     /// emitted exactly once rather than per frame.
     first_frame_logged: bool,
+    retry_redraw: bool,
     /// End of the previous `redraw`, for the frame *interval* — which is a different
     /// number from the frame *cost* in `redraw_stats` and the only one directly
     /// comparable to the WebView backend (../PLAN.md §12.2 item 2).
@@ -1577,6 +1579,7 @@ impl State {
             redraw_stats: (0, Duration::ZERO, Duration::ZERO),
             thread_started,
             first_frame_logged: false,
+            retry_redraw: false,
             last_frame_end: None,
             interval_stats: (0, Duration::ZERO, Duration::ZERO),
             tap_started: None,
@@ -1613,6 +1616,7 @@ impl State {
 
     fn handle(&mut self, cmd: Command) {
         match cmd {
+            Command::Redraw => self.redraw(),
             Command::NewWindow { window, width, height, generation } => {
                 if !crate::SURFACE_LIFECYCLE.is_current(generation) {
                     crate::logi!("NewWindow discarded: Android already replaced or destroyed it");
@@ -1756,6 +1760,7 @@ impl State {
                     gpu.hybrid_renderer = None;
                 }
                 self.window = None;
+                self.retry_redraw = false;
                 // A fling ticking away with nothing on screen to show for it is
                 // pure wasted wakeups (see `run()`'s recv_timeout switch) — the
                 // window it was animating for is gone, and `redraw()` already no-ops
@@ -1908,6 +1913,9 @@ impl State {
             }
             Command::TouchUp { x, y } => {
                 let (x, y) = self.touch_to_dp(x, y);
+                if self.gesture.as_ref().is_some_and(|g| g.slider.is_some()) {
+                    self.update_slider_from_touch(x);
+                }
                 let Some(gesture) = self.gesture.take() else { return };
                 // A slider owned this gesture: the value is already committed, and
                 // releasing must not also fling (there is nothing to fling — nothing
@@ -1945,10 +1953,19 @@ impl State {
                 // itself never reaches this thread) — nothing JNI-flavored left to do
                 // here, just ordinary state bookkeeping.
                 let Some(zkite_id) = self.focused.clone() else { return };
+                let text_changed = self.focused_text != new_state.text;
+                let selection = (new_state.selection_start, new_state.selection_end);
+                if !text_changed && self.focused_selection == selection {
+                    return;
+                }
                 self.focused_text = new_state.text;
-                self.focused_selection = (new_state.selection_start, new_state.selection_end);
-                let text = self.focused_text.clone();
-                self.dispatch_text_edit(&zkite_id, &text);
+                self.focused_selection = selection;
+                // IMEs also report selection/composition changes and echo setState.
+                // Those must not re-run application change handlers for unchanged text.
+                if text_changed {
+                    let text = self.focused_text.clone();
+                    self.dispatch_text_edit(&zkite_id, &text);
+                }
                 self.redraw();
             }
             Command::KeyboardDismissed => {
@@ -1969,8 +1986,15 @@ impl State {
                 if self.selection_overlay_field.is_none() {
                     return;
                 }
+                if self.focused != self.selection_overlay_field { return; }
+                let changed = self.focused_text != text;
                 self.focused_text = text;
                 self.focused_selection = (start, end);
+                if changed {
+                    let id = self.selection_overlay_field.clone().unwrap();
+                    let value = self.focused_text.clone();
+                    self.dispatch_text_edit(&id, &value);
+                }
                 self.redraw();
             }
             Command::SelectionOverlayDismissed { text, start, end } => {
@@ -1982,11 +2006,12 @@ impl State {
                 // is what triggers *this* dismiss), but `focus_text_field(B)` always
                 // runs first and already owns those two fields by the time this
                 // arrives. A's final edit must still reach Python either way.
+                let changed = self.focused_text != text;
                 if self.focused.as_deref() == Some(zkite_id.as_ref()) {
                     self.focused_text = text.clone();
                     self.focused_selection = (start, end);
                 }
-                self.dispatch_text_edit(&zkite_id, &text);
+                if changed { self.dispatch_text_edit(&zkite_id, &text); }
                 self.redraw();
             }
             Command::ImeInsetsChanged { bottom } => {
@@ -2182,7 +2207,7 @@ impl State {
                 crate::loge!("call_set_selection_method: no NewStringUTF in vtable");
                 return;
             };
-            let Ok(c_text) = std::ffi::CString::new(self.focused_text.as_str()) else {
+            let Ok(c_text) = std::ffi::CString::new(cesu8::to_java_cesu8(&self.focused_text).as_ref()) else {
                 // Only fails on an embedded NUL byte, which no real IME-produced
                 // text can contain — defensive, not expected to ever trigger.
                 crate::loge!("call_set_selection_method: focused_text has an embedded NUL");
@@ -2197,6 +2222,8 @@ impl State {
                 return;
             }
             let (start, end) = self.focused_selection;
+            let start = zkite_pybridge::utf8_to_utf16_offset(&self.focused_text, start);
+            let end = zkite_pybridge::utf8_to_utf16_offset(&self.focused_text, end);
             if let Some(call) = vtable.CallVoidMethodA {
                 let args =
                     [jni_sys::jvalue { l: jtext }, jni_sys::jvalue { i: start }, jni_sys::jvalue { i: end }];
@@ -2360,6 +2387,19 @@ impl State {
         // top-left corner region of the field it is supposed to cover exactly (§7.8's
         // whole design premise is that occlusion is exact, not approximate).
         let s = self.scale;
+        let radius = container_n.style.paint.radius;
+        let baseline = text_n.text.as_ref().and_then(|runs| runs.first())
+            .and_then(|run| run.glyphs.first()).map(|g| g.y).unwrap_or(text_size);
+        let geometry = serde_json::json!({
+            "left": (text_n.rect.0 - x) * s,
+            "baseline": (text_n.rect.1 - y + baseline) * s,
+            "right": (x + w - text_n.rect.0 - text_n.rect.2).max(0.0) * s,
+            "font": format!("{:?}", text_n.style.text.family).to_lowercase(),
+            "bold": text_n.style.text.weight >= 600,
+            "italic": text_n.style.text.italic,
+            "spacing": text_n.style.text.letter_spacing,
+            "radii": [radius.top_left*s, radius.top_right*s, radius.bottom_right*s, radius.bottom_left*s]
+        }).to_string();
         self.call_show_selection_overlay_method(
             x * s,
             y * s,
@@ -2371,6 +2411,7 @@ impl State {
             start,
             end,
             is_password,
+            &geometry,
         );
     }
 
@@ -2392,6 +2433,7 @@ impl State {
         start: i32,
         end: i32,
         is_password: bool,
+        geometry: &str,
     ) {
         let Some(env) = self.render_env else {
             crate::loge!("call_show_selection_overlay_method: no attached JNIEnv (see boot log)");
@@ -2414,7 +2456,7 @@ impl State {
                 crate::loge!("call_show_selection_overlay_method: no NewStringUTF in vtable");
                 return;
             };
-            let Ok(c_text) = std::ffi::CString::new(self.focused_text.as_str()) else {
+            let Ok(c_text) = std::ffi::CString::new(cesu8::to_java_cesu8(&self.focused_text).as_ref()) else {
                 crate::loge!("call_show_selection_overlay_method: focused_text has an embedded NUL");
                 return;
             };
@@ -2426,6 +2468,10 @@ impl State {
                 }
                 return;
             }
+            let c_geometry = std::ffi::CString::new(geometry).unwrap();
+            let jgeometry = new_string_utf(env, c_geometry.as_ptr());
+            let start = zkite_pybridge::utf8_to_utf16_offset(&self.focused_text, start);
+            let end = zkite_pybridge::utf8_to_utf16_offset(&self.focused_text, end);
             if let Some(call) = vtable.CallVoidMethodA {
                 let args = [
                     jni_sys::jvalue { l: jtext },
@@ -2439,11 +2485,13 @@ impl State {
                     jni_sys::jvalue { i: pack_argb(text_color) },
                     jni_sys::jvalue { i: pack_argb(bg_color) },
                     jni_sys::jvalue { z: if is_password { jni_sys::JNI_TRUE } else { jni_sys::JNI_FALSE } },
+                    jni_sys::jvalue { l: jgeometry },
                 ];
                 call(env, view.0, show_mid, args.as_ptr());
             }
             if let Some(del) = vtable.DeleteLocalRef {
                 del(env, jtext);
+                del(env, jgeometry);
             }
             if let Some(check) = vtable.ExceptionCheck {
                 if check(env) != 0 {
@@ -3296,7 +3344,7 @@ impl State {
         if !crate::SURFACE_LIFECYCLE.is_current(self.window_generation) {
             return;
         }
-        let outcome = if let Some(gpu) = &mut self.gpu {
+        let mut outcome = if let Some(gpu) = &mut self.gpu {
             paint_gpu(gpu, self.width, self.height, self.scale, &nodes, caret, &mut phases, &mut self.images)
         } else {
             PaintOutcome::Fallback // no GPU backend at all
@@ -3313,10 +3361,7 @@ impl State {
                 reconfigure(gpu, self.width, self.height, self.images.as_deref_mut());
                 // Immediately retry painting on the fresh surface so the frame is not dropped,
                 // preventing the screen from staying black if no subsequent event triggers a redraw.
-                let retry = paint_gpu(gpu, self.width, self.height, self.scale, &nodes, caret, &mut phases, &mut self.images);
-                if retry == PaintOutcome::Fallback {
-                    paint_cpu_fallback(window, self.width, self.height, self.scale, &nodes, caret, &mut self.images);
-                }
+                outcome = paint_gpu(gpu, self.width, self.height, self.scale, &nodes, caret, &mut phases, &mut self.images);
             }
         }
 
@@ -3346,10 +3391,11 @@ impl State {
         // directly, so for that frame the CPU is the buffer producer for a window whose
         // swapchain wgpu still owns. Named as the hypothesis it is — §39 did not isolate
         // it, and the recovery above is what fixes the symptom either way.
+        let mut presented = outcome == PaintOutcome::Painted;
         if outcome == PaintOutcome::Fallback {
             if let Some(window) = &self.window {
                 let t = Instant::now();
-                paint_cpu_fallback(window, self.width, self.height, self.scale, &nodes, caret, &mut self.images);
+                presented = paint_cpu_fallback(window, self.width, self.height, self.scale, &nodes, caret, &mut self.images);
                 phases.scene += t.elapsed();
             }
         }
@@ -3359,8 +3405,18 @@ impl State {
         // would go quiet if a frame ever painted before this point; this has to fire
         // exactly once, on the first frame that actually reached the screen.
         // `ZKiteActivity`'s own `boot-call process_rel=` line carries the other half.
-        if !self.first_frame_logged {
+        self.retry_redraw = !presented;
+        if presented && !self.first_frame_logged {
             self.first_frame_logged = true;
+            if let (Some(raw_env), Some(view)) = (self.render_env, self.surface_view) {
+                if let Ok(mut env) = unsafe { crate::a11y::bridge_env(raw_env) } {
+                    let host = unsafe { crate::a11y::bridge_jobject(view.0) };
+                    if let Err(error) = env.call_method(&host, "onFirstFrame", "()V", &[]) {
+                        crate::loge!("first frame callback: {error}");
+                        let _ = env.exception_clear();
+                    }
+                }
+            }
             crate::logi!(
                 "ZKITEPERF first-frame since_boot_call={:.0}ms nodes={} via={path}",
                 self.thread_started.elapsed().as_secs_f32() * 1000.0,
@@ -3374,7 +3430,7 @@ impl State {
         // matching line: `present` returning is this backend handing the frame to the
         // compositor, not the panel lighting up — both numbers exclude the same final
         // hop, so they compare fairly even though neither is the whole latency.
-        if let Some(tapped) = self.tap_started.take() {
+        if let Some(tapped) = self.tap_started.take().filter(|_| presented) {
             crate::logi!("ZKITEPERF tap-to-paint={:.1}ms", tapped.elapsed().as_secs_f32() * 1000.0);
         }
 
@@ -3740,11 +3796,21 @@ impl State {
     ///   precisely what `next_deadline` exists to avoid.
     /// - **Nothing at all.** Block, as before.
     fn next_wake(&self) -> Option<Duration> {
-        zkite_frametiming::next_wake(
+        if self.window.is_none() || !crate::SURFACE_LIFECYCLE.is_current(self.window_generation) {
+            return None;
+        }
+        let animation = zkite_frametiming::next_wake(
             self.fling.is_some(),
             self.animator.timeline.next_deadline(Instant::now()),
             self.next_frame_wait(),
-        )
+        );
+        // Retry an unpresented idle frame without spinning on an occluded surface.
+        if self.retry_redraw {
+            let retry = Duration::from_millis(100);
+            Some(animation.map_or(retry, |wait| wait.min(retry)))
+        } else {
+            animation
+        }
     }
 
     /// One animation step for everything that self-paces, and a frame if anything did.
@@ -3761,7 +3827,7 @@ impl State {
             self.tick_fling();
             return;
         }
-        if self.animator.timeline.is_active() {
+        if self.retry_redraw || self.animator.timeline.is_active() {
             self.animator.stats_driven_frames += 1;
             self.redraw();
         }
@@ -3933,12 +3999,40 @@ impl State {
         }
     }
 
+    fn update_selection_overlay_rect(&self, rect: (f32, f32, f32, f32)) {
+        let (Some(env), Some(view)) = (self.render_env, self.surface_view) else { return };
+        unsafe {
+            let vt = **env;
+            let class = vt.GetObjectClass.unwrap()(env, view.0);
+            let method = vt.GetMethodID.unwrap()(env, class,
+                c"updateSelectionOverlayRect".as_ptr(), c"(FFFF)V".as_ptr());
+            if !method.is_null() {
+                let s = self.scale;
+                let args = [jni_sys::jvalue { f: rect.0*s }, jni_sys::jvalue { f: rect.1*s },
+                    jni_sys::jvalue { f: rect.2*s }, jni_sys::jvalue { f: rect.3*s }];
+                vt.CallVoidMethodA.unwrap()(env, view.0, method, args.as_ptr());
+            }
+            vt.DeleteLocalRef.unwrap()(env, class);
+            if vt.ExceptionCheck.unwrap()(env) != 0 {
+                vt.ExceptionDescribe.unwrap()(env);
+                vt.ExceptionClear.unwrap()(env);
+            }
+        }
+    }
+
     fn layout_frame(&mut self, now: Instant) -> LayoutFrame {
         let mut phases = FramePhases::default();
         let focused = self.focused.as_ref().map(|zkite_id| FocusedField { zkite_id, text: &self.focused_text });
         let t = Instant::now();
         let built = zkite_pybridge::build(&mut self.renderer, &self.current, focused.as_ref());
         phases.build = t.elapsed();
+        // Navigation or a conditional view can remove the focused field without a tap.
+        if self.focused.as_deref().is_some_and(|id| !built.is_text_field(id)) {
+            self.focused = None;
+            self.selection_overlay_field = None;
+            self.call_hide_selection_overlay_method();
+            self.call_blur_method();
+        }
         // Inside `build`'s phase rather than its own column: it is part of turning the
         // tree into a laid-out frame, it is bounded by the number of *animating* nodes
         // rather than by the tree, and §46's lesson is that a `ZKITEPERF` column
@@ -3951,6 +4045,7 @@ impl State {
         let (logical_w, logical_h) = self.logical_size();
         self.renderer.layout(built.root, logical_w, logical_h);
         phases.layout = t.elapsed();
+        built.clamp_scroll_offsets(&self.renderer, &mut self.scroll_offsets);
         let base_offsets = built.scroll_offsets_for(&self.scroll_offsets);
         let t = Instant::now();
         let unpanned_nodes = self.renderer.positioned(built.root, &base_offsets);
@@ -3976,6 +4071,13 @@ impl State {
         } else {
             unpanned_nodes
         };
+        if self.selection_overlay_field.is_some() {
+            if let Some(container) = built.focused_text_node.and_then(|n| self.renderer.parent(n)) {
+                if let Some(n) = nodes.iter().find(|n| n.node == container) {
+                    self.update_selection_overlay_rect(n.rect);
+                }
+            }
+        }
         LayoutFrame { built, nodes, phases }
     }
 
@@ -5046,7 +5148,7 @@ fn paint_cpu_fallback(
     nodes: &[zkite_renderer::PositionedNode],
     caret: Option<(f32, f32, f32, f32)>,
     images: &mut Option<Box<zkite_imagestore::ImageStore>>,
-) {
+) -> bool {
     use vello_cpu::color::AlphaColor;
     use vello_cpu::kurbo::{Affine, Rect};
     use vello_cpu::{Pixmap, RenderContext, Resources};
@@ -5201,13 +5303,13 @@ fn paint_cpu_fallback(
 
     if let Err(e) = window.set_buffers_geometry(width, height, Some(HardwareBufferFormat::R8G8B8A8_UNORM)) {
         crate::loge!("set_buffers_geometry failed: {e}");
-        return;
+        return false;
     }
     let mut guard = match window.lock(None) {
         Ok(g) => g,
         Err(e) => {
             crate::loge!("ANativeWindow_lock failed: {e}");
-            return;
+            return false;
         }
     };
     let stride_px = guard.stride();
@@ -5227,7 +5329,7 @@ fn paint_cpu_fallback(
     }
     let Some(dst) = guard.bytes() else {
         crate::loge!("ANativeWindow buffer has no CPU-accessible bytes");
-        return;
+        return false;
     };
     let row_bytes = width as usize * 4;
     let stride_bytes = stride_px * 4;
@@ -5241,4 +5343,5 @@ fn paint_cpu_fallback(
             d.write(*s);
         }
     }
+    true
 }

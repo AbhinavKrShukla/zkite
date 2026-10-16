@@ -19,8 +19,10 @@ pub fn destination(root: &Path, relative: &str) -> Result<PathBuf, String> {
         let Component::Normal(name) = part else {
             return Err(format!("refusing path outside the app directory: {relative}"));
         };
-        if name.to_string_lossy().starts_with('.') {
-            return Err(format!("refusing a hidden managed path: {relative}"));
+        // Wheel resources may be hidden. Only the sync protocol's own root
+        // metadata is reserved; traversal and symlinks remain forbidden.
+        if destination == root && name.to_string_lossy().starts_with(".zkite") {
+            return Err(format!("refusing a reserved managed path: {relative}"));
         }
         destination.push(name);
         match std::fs::symlink_metadata(&destination) {

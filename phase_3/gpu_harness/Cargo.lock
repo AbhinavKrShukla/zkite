@@ -2695,6 +2695,7 @@ dependencies = [
  "accesskit_android",
  "base64",
  "cc",
+ "cesu8",
  "glifo",
  "jni-sys 0.3.1",
  "kurbo",

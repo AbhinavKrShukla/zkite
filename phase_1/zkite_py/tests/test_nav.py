@@ -145,10 +145,42 @@ class NavStackTest(unittest.TestCase):
     def test_unknown_screen_names_what_is_available(self):
         nav = self.nav()
         Nav("flex-1", home).to_tree(RenderContext(), "r")
-        nav.push("nope")
+        before = list(nav.stack)
         with self.assertRaises(KeyError) as caught:
-            Nav("flex-1", home).to_tree(RenderContext(), "r")
+            nav.push("nope")
+        self.assertEqual(nav.stack, before)
         self.assertIn("home", str(caught.exception))
+
+    def test_invalid_parameters_leave_stack_unchanged(self):
+        nav = self.nav()
+        Nav("", home, detail).to_tree(RenderContext(), "r")
+        before = list(nav.stack)
+        for params in ({}, {"item_id": 1, "typo": True}):
+            with self.assertRaises(TypeError):
+                nav.push(detail, **params)
+            self.assertEqual(nav.stack, before)
+
+    def test_entries_isolate_explicit_keys_and_restore_on_back(self):
+        def page(item_id: int = 0):
+            return Text("", str(item_id), key="shared")
+        nav = self.nav()
+        widget = Nav("", page)
+        first = widget.to_tree(RenderContext(), "r")["children"][0]
+        nav.push(page, item_id=1)
+        second = widget.to_tree(RenderContext(), "r")["children"][0]
+        self.assertNotEqual(first["id"], second["id"])
+        nav.pop()
+        self.assertEqual(first["id"], widget.to_tree(RenderContext(), "r")["children"][0]["id"])
+
+    def test_screen_receives_its_own_host(self):
+        seen = []
+        def page(nav: Navigator):
+            seen.append(nav)
+            return Text("", "Page")
+        host = Navigator()
+        Nav("", page, host=host).to_tree(RenderContext(), "r")
+        self.assertIs(seen[-1], host)
+        self.assertIsNot(host, self.nav())
 
     def test_duplicate_screen_names_are_refused_at_construction(self):
         def home2():  # noqa: D401

@@ -87,6 +87,9 @@ public final class Native {
      * regardless of how little it had moved; see {@code ZKiteSurfaceView}'s doc. */
     public static native void onTouchCancel();
 
+    /** Refresh the current accessibility tree when a service attaches to an idle app. */
+    public static native void requestRedraw();
+
     /**
      * Registers {@code ZKiteSurfaceView} itself with the render thread (../../PLAN.md
      * §5, IME) — needed so native can later call {@code focusAndShowKeyboard}/
