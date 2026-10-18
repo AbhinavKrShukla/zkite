@@ -683,6 +683,34 @@ check(
     afterBlur.filter((e) => e === "change:tf").length === 1
 );
 
+// Pager movement reports a controlled index after settling, and header state
+// changes scroll to the corresponding page without rebuilding its children.
+const tabsHtml = execFileSync("python3", ["-c", `
+import sys
+sys.path.insert(0, "../../zkite_py/src")
+from zkite import Tabs, Text
+from zkite.widgets import RenderContext
+print(Tabs("h-[300px] w-[320px]", Text("", "First"), Text("", "Second"),
+    labels=["First", "Second"], index=0, on_change=lambda i: None, key="tabs").render(RenderContext(), "r"))
+`], { cwd: HERE, encoding: "utf8" });
+await page.evaluate(html => {
+  window.__pagerEvents = [];
+  window.ZKiteNative = { dispatch: (id, event, payload) => window.__pagerEvents.push([id, event, payload]) };
+  window.ZKiteRuntime.applyHtml(html);
+}, tabsHtml);
+await page.waitForTimeout(100);
+await page.evaluate(() => {
+  const pager = document.getElementById("tabs:pages");
+  pager.scrollLeft = pager.clientWidth;
+});
+await page.waitForTimeout(400);
+check("pager scroll dispatches the selected page", await page.evaluate(() =>
+  window.__pagerEvents.some(e => e[0] === "tabs:pages" && e[1] === "change" && e[2] === "1")));
+await page.evaluate(html => window.ZKiteRuntime.applyHtml(html), tabsHtml);
+await page.waitForTimeout(500);
+check("controlled tab change scrolls back to page zero", await page.evaluate(() =>
+  document.getElementById("tabs:pages").scrollLeft < 1));
+
 check("no console/page errors during the whole sequence", consoleErrors.length === 0);
 if (consoleErrors.length) console.log("console errors:", consoleErrors);
 

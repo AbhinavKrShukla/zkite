@@ -19,3 +19,5 @@ pub mod zip_extras;
 pub mod aab;
 
 pub use pack_common::{PackError, Result};
+
+pub mod launcher_icon;

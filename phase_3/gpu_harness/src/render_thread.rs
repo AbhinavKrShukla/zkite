@@ -141,17 +141,9 @@ pub(crate) const FALLBACK_FRAME_INTERVAL: Duration = Duration::from_micros(16_66
 /// own `VelocityTracker`, reimplemented locally since this thread has no `View` to ask
 /// for one.
 const VELOCITY_WINDOW: Duration = Duration::from_millis(100);
-/// Below this much time between the oldest and newest sample in the window, a
-/// velocity estimate divides by a near-zero `dt` and is too noisy to trust — treated
-/// as "no fling" rather than risking a jitter-driven launch velocity.
-const MIN_VELOCITY_SAMPLE_DT: f32 = 0.008;
 /// Release speed (dp/s) below which a lift-off reads as "the drag stopped
 /// deliberately," not a flick.
 const MIN_FLING_START_VELOCITY: f32 = 80.0;
-/// Remaining speed (dp/s) below which an in-flight fling's motion is imperceptible —
-/// ends the animation (and the per-frame ticking in `run()` that comes with one)
-/// instead of asymptotically approaching zero forever.
-const MIN_FLING_STOP_VELOCITY: f32 = 20.0;
 /// `fling_tau` and `frame_periods` live in `zkite_frametiming`, not here, and the
 /// reason is ../PLAN.md §15.5: this crate does not build for the host, so a formula
 /// written in it can never carry a unit test. §41 shipped `fling_tau` — its entire
@@ -159,7 +151,7 @@ const MIN_FLING_STOP_VELOCITY: f32 = 20.0;
 /// in its own known-gaps list. Both are pure arithmetic over numbers, which makes
 /// moving them the same call §35 made for `zkite_imagestore`; the constants and their
 /// documentation moved with them (§42).
-use zkite_frametiming::{fling_tau, frame_periods};
+use zkite_frametiming::{frame_periods, SplineFling, release_velocity};
 
 /// The event name a finished animation is dispatched under (../PLAN.md §47). One
 /// constant because it is spelled in three places that must agree — here, the
@@ -238,9 +230,9 @@ pub enum Command {
     /// except this one cannot hang Android's own callback at all, because it never
     /// waits.
     Back,
-    TouchDown { x: f32, y: f32 },
-    TouchMove { x: f32, y: f32 },
-    TouchUp { x: f32, y: f32 },
+    TouchDown { x: f32, y: f32, at: Instant },
+    TouchMove { x: f32, y: f32, at: Instant },
+    TouchUp { x: f32, y: f32, at: Instant },
     /// Android says this gesture didn't complete normally (`MotionEvent.
     /// ACTION_CANCEL`) — ends it without ever dispatching a tap, unlike `TouchUp`.
     TouchCancel,
@@ -482,31 +474,13 @@ struct SliderDrag {
 /// A momentum-scroll animation in flight after a drag released with enough speed —
 /// see the module doc's "Momentum" paragraph. Ticked by `tick_fling`, once per
 /// `FRAME_INTERVAL`, until it naturally runs out of speed or hits either scroll bound.
+struct PageSnap {
+    target: Arc<str>, from: f32, to: f32, index: usize, started: Instant,
+}
+
 struct Fling {
-    /// Same `zkite_py` node id convention as `ScrollTarget::id` and
-    /// `self.scroll_offsets`'s keys.
-    target: Arc<str>,
-    /// Which axis this fling moves — inherited from the `axis` its originating drag
-    /// locked to, never re-decided. A fling is the tail of one drag, so it cannot
-    /// belong to an axis that drag did not.
-    axis: zkite_renderer::ScrollAxis,
-    /// px/s, same sign convention as `TouchMove`'s own per-move `delta`: positive
-    /// means the scroll offset is increasing (finger was moving up/left, content
-    /// sliding to reveal more below/right).
-    velocity: f32,
-    /// The originating drag's range for `axis` at the moment it started — content
-    /// structure can't change while `self.fling` is animating (nothing here calls
-    /// back into Python), so this stays valid without re-querying it every tick.
-    max_scroll: f32,
-    /// This fling's own decay time constant, from `fling_tau(velocity)` at release.
-    /// Held here rather than read from a constant because it depends on how hard the
-    /// flick was — see `fling_tau`, including why it must not be recomputed per tick.
-    tau: f32,
-    /// When `tick_fling` last advanced this animation — the reference point for the
-    /// next tick's `dt`, not a fixed frame count, so the animation's total duration
-    /// and travel are correct even if a tick is delayed (e.g. a `Resize` briefly
-    /// blocks the render thread).
-    last_tick: Instant,
+    target: Arc<str>, axis: zkite_renderer::ScrollAxis, max_scroll: f32,
+    curve: SplineFling, started: Instant, previous: f32,
 }
 
 pub fn spawn(fonts: zkite_renderer::FontSet, paths: AppPaths) -> Sender<Command> {
@@ -1226,6 +1200,8 @@ struct State {
     /// only ever set from `maybe_start_fling`, called after `gesture` is taken
     /// (`Option::take`) at `TouchUp`.
     fling: Option<Fling>,
+    page_snap: Option<PageSnap>,
+    pagers: FxHashMap<Arc<str>, (f32, usize, usize)>,
     /// In dp — see `AppPaths::touch_slop`.
     touch_slop: f32,
     /// One display refresh — see `AppPaths::frame_period`.
@@ -1546,6 +1522,8 @@ impl State {
             reported_viewports: FxHashMap::default(),
             gesture: None,
             fling: None,
+            page_snap: None,
+            pagers: FxHashMap::default(),
             touch_slop,
             frame_period,
             last_frame_at: None,
@@ -1768,13 +1746,14 @@ impl State {
                 self.fling = None;
                 let _ = ack.send(());
             }
-            Command::TouchDown { x, y } => {
+            Command::TouchDown { x, y, at } => {
                 let (x, y) = self.touch_to_dp(x, y);
                 // A new touch always grabs whatever's currently in motion, same as
                 // Android's own fling-cancel-on-ACTION_DOWN — a still-decelerating
                 // list must stop dead under a landing finger, not keep coasting
                 // underneath it.
                 self.fling = None;
+                self.page_snap = None;
                 let Some(built) = &self.built else { return };
                 let offsets = self.node_scroll_offsets();
                 // Resolve, once, everything this gesture might need: the deepest hit
@@ -1822,7 +1801,7 @@ impl State {
                         scroll_y = resolve(zkite_renderer::ScrollAxis::Y);
                     }
                 }
-                let now = Instant::now();
+                let now = at;
                 self.gesture = Some(Gesture {
                     down: (x, y),
                     down_time: now,
@@ -1842,10 +1821,10 @@ impl State {
                     self.update_slider_from_touch(x);
                 }
             }
-            Command::TouchMove { x, y } => {
+            Command::TouchMove { x, y, at } => {
                 let (x, y) = self.touch_to_dp(x, y);
                 let Some(gesture) = &mut self.gesture else { return };
-                let now = Instant::now();
+                let now = at;
                 gesture.history.push((now, x, y));
                 let cutoff = now - VELOCITY_WINDOW;
                 gesture.history.retain(|(t, _, _)| *t >= cutoff);
@@ -1911,12 +1890,14 @@ impl State {
                 gesture.last = (x, y);
                 self.redraw();
             }
-            Command::TouchUp { x, y } => {
+            Command::TouchUp { x, y, at } => {
                 let (x, y) = self.touch_to_dp(x, y);
                 if self.gesture.as_ref().is_some_and(|g| g.slider.is_some()) {
                     self.update_slider_from_touch(x);
                 }
-                let Some(gesture) = self.gesture.take() else { return };
+                let Some(mut gesture) = self.gesture.take() else { return };
+                gesture.history.push((at, x, y));
+                gesture.history.retain(|(t, _, _)| at.saturating_duration_since(*t) <= VELOCITY_WINDOW);
                 // A slider owned this gesture: the value is already committed, and
                 // releasing must not also fling (there is nothing to fling — nothing
                 // scrolled), long-press (a held thumb is not a text selection), or
@@ -1935,6 +1916,9 @@ impl State {
                 self.dispatch_tap(x, y);
             }
             Command::TouchCancel => {
+                if let Some(g) = self.gesture.as_mut() { g.history.clear(); }
+                if let Some(g) = self.gesture.take() { self.maybe_start_fling(g); }
+                self.fling = None;
                 // Explicitly not `maybe_start_fling` — `ACTION_CANCEL` means this
                 // gesture didn't complete normally (see `Command::TouchCancel`'s own
                 // doc comment), and a fling launched from a cancelled gesture would
@@ -3113,6 +3097,27 @@ impl State {
     /// right at lift-off doesn't read as "the drag stopped" when the finger was
     /// actually still moving fast up to that instant.
     fn maybe_start_fling(&mut self, gesture: Gesture) {
+        if gesture.axis == Some(zkite_renderer::ScrollAxis::X) {
+            if let Some(target) = gesture.scroll_x.as_ref() {
+                if let Some(&(width, selected, count)) = self.pagers.get(&target.id) {
+                    if width > 0.0 {
+                        let offset = self.scroll_offsets.get(&target.id).map_or(0.0, |p| p.0);
+                        let velocity = match (gesture.history.first(), gesture.history.last()) {
+                            (Some(a), Some(b)) if b.0.duration_since(a.0).as_secs_f32() > 0.01 =>
+                                (a.1 - b.1) / b.0.duration_since(a.0).as_secs_f32(),
+                            _ => 0.0,
+                        };
+                        let projected = if velocity.abs() > 400.0 {
+                            selected as f32 + velocity.signum()
+                        } else { (offset / width).round() };
+                        let index = projected.clamp(0.0, (count - 1) as f32) as usize;
+                        self.page_snap = Some(PageSnap { target: target.id.clone(), from: offset,
+                            to: index as f32 * width, index, started: Instant::now() });
+                    }
+                    return;
+                }
+            }
+        }
         // A fling belongs to the axis its drag locked to — it is that drag's tail, not
         // a fresh decision. `axis` is always `Some` here (`TouchUp` only calls this for
         // a gesture that dragged, and `dragging` and `axis` are set together), but
@@ -3124,38 +3129,17 @@ impl State {
             zkite_renderer::ScrollAxis::Y => gesture.scroll_y,
         };
         let Some(target) = target else { return };
-        let (Some(&(first_t, first_x, first_y)), Some(&(last_t, last_x, last_y))) =
-            (gesture.history.first(), gesture.history.last())
-        else {
-            return;
-        };
-        let dt = last_t.duration_since(first_t).as_secs_f32();
-        if dt < MIN_VELOCITY_SAMPLE_DT {
-            return;
-        }
-        // Same sign convention as `TouchMove`'s own per-move `delta`: positive means
-        // the offset is increasing. Summing that convention over the whole window
-        // telescopes to exactly `first - last` on the locked axis.
-        let velocity = match axis {
-            zkite_renderer::ScrollAxis::X => (first_x - last_x) / dt,
-            zkite_renderer::ScrollAxis::Y => (first_y - last_y) / dt,
-        };
+        let origin = gesture.history.first().map(|p| p.0).unwrap_or_else(Instant::now);
+        let samples: Vec<_> = gesture.history.iter().map(|(t, x, y)|
+            (t.saturating_duration_since(origin).as_secs_f32(),
+             if axis == zkite_renderer::ScrollAxis::X { *x } else { *y })).collect();
+        let velocity = release_velocity(&samples);
         if velocity.abs() < MIN_FLING_START_VELOCITY {
             return;
         }
-        let tau = fling_tau(velocity);
-        crate::logi!(
-            "fling: launching at {velocity:.0}dp/s on {axis:?} (tau {tau:.3}s, travel {:.0}dp, max_scroll {})",
-            velocity.abs() * tau,
-            target.max
-        );
         self.fling = Some(Fling {
-            target: target.id,
-            axis,
-            velocity,
-            max_scroll: target.max,
-            last_tick: Instant::now(),
-            tau,
+            target: target.id, axis, max_scroll: target.max,
+            curve: SplineFling::new(velocity), started: Instant::now(), previous: 0.0,
         });
     }
 
@@ -3167,22 +3151,14 @@ impl State {
     /// silently losing or gaining distance to however long that tick actually took.
     fn tick_fling(&mut self) {
         let Some(fling) = self.fling.as_mut() else { return };
-        let now = Instant::now();
-        let dt = now.duration_since(fling.last_tick).as_secs_f32();
-        fling.last_tick = now;
-        if dt <= 0.0 {
-            // Two ticks with no measurable time between them (clock granularity) —
-            // nothing to integrate yet; wait for the next one rather than dividing
-            // by/decaying over a zero interval.
-            return;
-        }
-        let decay = (-dt / fling.tau).exp();
-        let displacement = fling.velocity * fling.tau * (1.0 - decay);
-        fling.velocity *= decay;
+        let elapsed = fling.started.elapsed().as_secs_f32();
+        let position = fling.curve.position(elapsed);
+        let displacement = position - fling.previous;
+        fling.previous = position;
+        let finished = elapsed >= fling.curve.duration;
         let target = fling.target.clone();
         let axis = fling.axis;
         let max_scroll = fling.max_scroll;
-        let remaining_velocity = fling.velocity;
 
         let entry = self.scroll_offsets.entry(target).or_insert((0.0, 0.0));
         let slot = match axis {
@@ -3198,7 +3174,7 @@ impl State {
         let hit_bound = clamped != unclamped;
         *slot = clamped;
 
-        if hit_bound || remaining_velocity.abs() < MIN_FLING_STOP_VELOCITY {
+        if hit_bound || finished {
             self.fling = None;
         }
         self.redraw();
@@ -3800,7 +3776,7 @@ impl State {
             return None;
         }
         let animation = zkite_frametiming::next_wake(
-            self.fling.is_some(),
+            self.fling.is_some() || self.page_snap.is_some(),
             self.animator.timeline.next_deadline(Instant::now()),
             self.next_frame_wait(),
         );
@@ -3820,6 +3796,20 @@ impl State {
     /// a frame being painted twice when both are running, which is the common case for
     /// a sheet that springs shut while the list behind it is still coasting.
     fn tick_animation_frame(&mut self) {
+        if let Some(snap) = self.page_snap.as_ref() {
+            let t = (snap.started.elapsed().as_secs_f32() / 0.24).min(1.0);
+            let x = snap.from + (snap.to - snap.from) * (1.0 - (1.0 - t).powi(3));
+            let target = snap.target.clone();
+            let index = snap.index;
+            self.scroll_offsets.entry(target.clone()).or_default().0 = x;
+            if t >= 1.0 {
+                self.page_snap = None;
+                if let Some(spec) = self.pagers.get_mut(&target) { spec.1 = index; }
+                self.dispatch_change_to(&target, &index.to_string(), false);
+            }
+            self.redraw();
+            return;
+        }
         // `tick_fling` redraws by itself (and clears `self.fling` on the tick it
         // stops), so when there is a fling it already produces this frame — and the
         // animator is sampled inside that same `redraw`.
@@ -4045,6 +4035,30 @@ impl State {
         let (logical_w, logical_h) = self.logical_size();
         self.renderer.layout(built.root, logical_w, logical_h);
         phases.layout = t.elapsed();
+        // Pager widths come from layout, so rotation and nested layouts stay aligned.
+        let positioned = self.renderer.positioned(built.root, &built.scroll_offsets_for(&self.scroll_offsets));
+        self.pagers.retain(|id, _| built.pagers.iter().any(|p| &p.0 == id));
+        if self.page_snap.as_ref().is_some_and(|s| !self.pagers.contains_key(&s.target)) {
+            self.page_snap = None;
+        }
+        for (id, node, index, count) in &built.pagers {
+            let Some(rect) = positioned.iter().find(|p| p.node == *node).map(|p| p.rect) else { continue };
+            let width = rect.2;
+            let previous = self.pagers.insert(id.clone(), (width, *index, *count));
+            let entry = self.scroll_offsets.entry(id.clone()).or_default();
+            match previous {
+                None => entry.0 = *index as f32 * width,
+                Some((old_width, _, _)) if (old_width - width).abs() > 0.5 => {
+                    entry.0 = *index as f32 * width;
+                    self.page_snap = None;
+                }
+                Some((_, old_index, _)) if old_index != *index => {
+                    self.page_snap = Some(PageSnap { target: id.clone(), from: entry.0,
+                        to: *index as f32 * width, index: *index, started: now });
+                }
+                _ => {}
+            }
+        }
         built.clamp_scroll_offsets(&self.renderer, &mut self.scroll_offsets);
         let base_offsets = built.scroll_offsets_for(&self.scroll_offsets);
         let t = Instant::now();
@@ -4549,6 +4563,8 @@ fn reconfigure(
     // difference on a 210 MB allocation, i.e. nothing. Reverted rather than kept, since
     // a line that reads like a memory fix and isn't one is worse than its absence. See
     // ../PLAN.md §14.7 for what that does and doesn't rule out.
+    // Glyph atlas entries also belong to the old renderer, including bitmap emoji.
+    gpu.resources = vello_hybrid::Resources::new();
     gpu.hybrid_renderer = Some(vello_hybrid::Renderer::new(
         &gpu.device,
         &vello_hybrid::RenderTargetConfig { format, width: width as u32, height: height as u32 },
@@ -4924,6 +4940,8 @@ fn paint_nodes_into_scene(
                     .collect();
                 scene
                     .glyph_run(resources, &run.font)
+                    // Bitmap emoji must be uploaded to the GPU glyph atlas.
+                    .atlas_cache(true)
                     .font_size(run.font_size)
                     .hint(true)
                     .fill_glyphs(glyphs.into_iter());

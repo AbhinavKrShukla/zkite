@@ -24,6 +24,7 @@ pub fn prepare(project: &Path, backend: Backend, abi: &str, source: &Path) -> Re
     let key = std::fs::read(&key_path)?;
     let notices = crate::build_cmd::runtime_notices(crate::payload::root()?)?;
     let mut hash = Sha256::new();
+    hash.update(b"adaptive-icon-v2");
     for part in [&shell, &manifest, &strings, &icon, &key] {
         hash.update((part.len() as u64).to_le_bytes());
         hash.update(part);
@@ -40,10 +41,11 @@ pub fn prepare(project: &Path, backend: Backend, abi: &str, source: &Path) -> Re
     if !apk.is_file() || std::fs::read_to_string(&stamp).ok().as_deref() != Some(&fingerprint) {
         let package = Package {
             android_manifest: manifest,
-            resources: vec![
-                FileResource { subdirectory: "values".into(), name: "strings.xml".into(), resource_id: 0, contents: strings },
-                FileResource { subdirectory: "drawable".into(), name: "icon.png".into(), resource_id: 0, contents: icon },
-            ],
+            resources: {
+                let mut resources = zkite_bundler::launcher_icon::resources(icon);
+                resources.push(FileResource { subdirectory: "values".into(), name: "strings.xml".into(), resource_id: 0, contents: strings });
+                resources
+            },
         };
         let mut extras = runtime_entries(&shell)?;
         extras.retain(|entry| !notices.iter().any(|notice| notice.path == entry.path));
@@ -97,7 +99,7 @@ mod tests {
         let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
         for name in ["classes.dex", "assets/zkite-devmode", "assets/zkite-framework.zip",
             "lib/arm64-v8a/runtime.so", "AndroidManifest.xml", "resources.arsc",
-            "res/drawable/icon.png", "META-INF/CERT.RSA"] {
+            "res/drawable/icon_art.png", "META-INF/CERT.RSA"] {
             zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
             zip.write_all(name.as_bytes()).unwrap();
         }
@@ -146,8 +148,11 @@ mod tests {
         assert_ne!(bytes, original);
         let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
         let mut packaged = Vec::new();
-        archive.by_name("res/drawable/icon.png").unwrap().read_to_end(&mut packaged).unwrap();
+        archive.by_name("res/drawable/icon_art.png").unwrap().read_to_end(&mut packaged).unwrap();
         assert_eq!(packaged, changed);
+        let mut adaptive = Vec::new();
+        archive.by_name("res/drawable/icon.xml").unwrap().read_to_end(&mut adaptive).unwrap();
+        assert_eq!(&adaptive[..4], &[3, 0, 8, 0], "drawable XML must be compiled Android XML");
         assert!(archive.by_name("assets/zkite-devmode").is_ok());
     }
 }

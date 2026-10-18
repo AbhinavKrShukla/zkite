@@ -823,6 +823,45 @@ class List(Widget):
 
 class Text(Widget):
     tag = "span"
+    implied_classes = "shrink-0"
+
+    def __init__(self, class_name="", *children, wrap=True, multiline=True,
+                 max_lines=None, overflow="clip", **props):
+        if overflow not in ("clip", "ellipsis", "visible"):
+            raise ValueError("Text overflow must be clip, ellipsis, or visible")
+        if max_lines is not None and (isinstance(max_lines, bool) or not isinstance(max_lines, int) or max_lines < 1):
+            raise ValueError("Text max_lines must be a positive integer")
+        self.wrap = bool(wrap and multiline)
+        self.max_lines = max_lines if multiline else 1
+        self.overflow = overflow
+        super().__init__(class_name, *children, **props)
+
+    def _tree_classes(self):
+        clip = "overflow-visible" if self.overflow == "visible" else "overflow-hidden"
+        return f"flex flex-col min-w-0 {self.classes()} {clip}".strip()
+
+    def _tree_children(self, ctx, node_id):
+        children = super()._tree_children(ctx, node_id)
+        if self.wrap and self.max_lines is None and self.overflow != "ellipsis":
+            return children
+        for child in children:
+            if child["tag"] == "#text":
+                child["attrs"] = {"text_wrap": self.wrap, "text_max_lines": self.max_lines,
+                                  "text_ellipsis": self.overflow == "ellipsis"}
+        return children
+
+    def _tag_attrs(self):
+        style = ["min-width:0", "max-width:100%", "overflow-wrap:anywhere",
+                 "white-space:pre-wrap" if self.wrap else "white-space:nowrap",
+                 "overflow:visible" if self.overflow == "visible" else "overflow:hidden"]
+        if self.max_lines and self.wrap:
+            style += ["display:-webkit-box", "-webkit-box-orient:vertical",
+                      f"-webkit-line-clamp:{self.max_lines}"]
+        else:
+            style += ["display:block"]
+        if self.overflow == "ellipsis":
+            style += ["text-overflow:ellipsis"]
+        return {"style": ";".join(style)}
 
 
 class Button(Widget):

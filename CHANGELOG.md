@@ -1,6 +1,16 @@
 # Changelog
 
-## 1.1.1 — prepared for publication
+## 1.1.2 — prepared for publication
+
+- Add background I/O tasks and swipeable, controlled tabs.
+- Improve adaptive scrolling, text wrapping, line limits and ellipsis.
+- Fix native color emoji, adaptive launcher icons and public entry-point errors.
+- Introduce an orange-and-white interactive starter.
+- Reuse signing keys from ignored `keystore/` by default.
+- Resolve dependencies from pyproject/requirements using Android markers and per-package extras.
+
+
+## 1.1.1
 
 - Fix `zkite dev` dependency resolution, transitive package/resource transfer, caching, and live dependency updates/removal.
 - Fix clipped controls intercepting taps, shrinking-list scroll positions, disabled controls, slider release values, and skipped-frame retries.

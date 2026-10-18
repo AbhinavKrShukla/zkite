@@ -292,7 +292,7 @@ pub fn verify_shell(
         eprintln!(
             "  ! no {RECORD_NAME} under {} — nothing records which build produced these \
              artifacts, so `zkite build` cannot tell a current shell from one left behind \
-             by an experiment (phase_3/PLAN.md §34.8). Run {build_script} to write one.",
+             by an experiment. Run {build_script} to write one.",
             artifacts_dir.display()
         );
         return Ok(());
@@ -343,7 +343,7 @@ pub fn verify_shell(
         anyhow::bail!(
             "the prebuilt {} shell does not match the source in this payload — \
              `zkite build` copies these artifacts verbatim, so this would ship a binary \
-             built from something else (phase_3/PLAN.md §34.8):\n{}\n  \
+             built from something else:\n{}\n  \
              Set {SKIP_ENV}=1 to build anyway.",
             record.shell,
             stale.join("\n")

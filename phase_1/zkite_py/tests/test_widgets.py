@@ -44,7 +44,7 @@ class WidgetRenderTests(unittest.TestCase):
         html = render(Column())
         self.assertIn('class="flex flex-col"', html)
         html2 = render(Text())
-        self.assertNotIn("class=", html2)
+        self.assertIn('class="shrink-0"', html2)
 
     def test_text_renders_escaped_content(self):
         html = render(Text("text-7xl", "<script>1</script>"))
@@ -54,7 +54,7 @@ class WidgetRenderTests(unittest.TestCase):
     def test_text_content_first_ambiguity_resolved_class_first(self):
         # class string is always arg 0 (see widgets.py module docstring)
         html = render(Text("text-7xl font-bold text-white tabular-nums", "42"))
-        self.assertIn('class="text-7xl font-bold text-white tabular-nums"', html)
+        self.assertIn('class="shrink-0 text-7xl font-bold text-white tabular-nums"', html)
         self.assertIn(">42<", html)
 
     def test_button_has_type_button_and_registers_on_tap(self):
@@ -605,7 +605,7 @@ class LabelledControlTests(unittest.TestCase):
         self.assertEqual(plain["children"][1], {"tag": "#text", "text": "Wi-Fi"})
         styled = tree(Checkbox("", Text("font-bold", "High"), checked=False))
         self.assertEqual(styled["children"][1]["tag"], "span")
-        self.assertEqual(styled["children"][1]["classes"], "font-bold")
+        self.assertEqual(styled["children"][1]["classes"], "flex flex-col min-w-0 shrink-0 font-bold overflow-hidden")
 
     def test_the_bare_form_is_untouched_by_all_of_this(self):
         # The regression guard for the whole section: no label means the pre-§32

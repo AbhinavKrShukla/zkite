@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 
 WIDGET_NAMES = [
-    "Column", "Row", "Grid", "Stack", "ScrollView",
+    "Tabs", "Column", "Row", "Grid", "Stack", "ScrollView",
     "Text", "Button", "Icon", "TextField", "Image", "Switch", "Slider",
 ]
 

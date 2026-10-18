@@ -17,16 +17,16 @@ pub fn run(adb: &str) -> anyhow::Result<()> {
     // does not exist and no clue why." Every check below except adb and the host
     // Python resolves against this, so reporting it after them would bury the cause
     // under its own symptoms.
-    ok &= check("build payload (phase_3/PLAN.md §23.2)", check_payload());
+    ok &= check("build payload", check_payload());
     // Everything `zkite build` reads, not just the two markers the resolver probes for.
     // A payload missing `pip.pyz` resolves fine and then degrades silently — §23.2
     // called that "the quiet one" — and nothing before this asked.
-    ok &= check("payload is complete (phase_3/PLAN.md §29.7)", check_payload_complete());
+    ok &= check("payload is complete", check_payload_complete());
     // And whether the shell inside it came from the source beside it (§34.8).
-    ok &= check("prebuilt shell matches its source (phase_3/PLAN.md §34.8)", check_provenance());
+    ok &= check("prebuilt shell matches its source", check_provenance());
 
     ok &= check("adb on PATH + a device/emulator connected", check_adb(adb));
-    ok &= check("Python 3.14 for .pyc compilation (phase_2/PLAN.md §1.4)", check_pyc_python());
+    ok &= check("Python 3.14 for .pyc compilation", check_pyc_python());
     ok &= check("pip (vendored or system) for dependency resolution", check_pip());
     // **Only the *default* backend's artifacts are fatal.** Both are reported either
     // way, because the failure that prevents is a `zkite build` which stops with an
@@ -330,8 +330,7 @@ fn check_dependencies(pyproject: &str) {
                 let (resolved, latest) = w.version_mismatch.unwrap();
                 println!(
                     "  WARN  {spec}: resolved {resolved} but latest is {latest} — likely a \
-                     stale platform-compatible fallback, not real Android support \
-                     (phase_2/PLAN.md §1.3)"
+                     stale platform-compatible fallback, not real Android support"
                 );
             }
             WheelOutcome::Resolved(w) if w.is_pure_python => {

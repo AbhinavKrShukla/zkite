@@ -106,6 +106,7 @@ pub enum Control {
 /// dispatchable `zkite_py` node id.
 pub struct BuiltTree {
     pub root: NodeId,
+    pub pagers: Vec<(Arc<str>, NodeId, usize, usize)>,
     /// The taffy id of the app's own root widget (`view()`'s return value) — *not*
     /// `root`, which is `build`'s synthetic `flex flex-col w-full h-full` wrapper
     /// (needed for layout, meaningless for accessibility). AccessKit's own tree needs
@@ -355,6 +356,7 @@ pub fn build(renderer: &mut Renderer, root: &RawNode, focused: Option<&FocusedFi
         a11y_ids: FxHashMap::default(),
         anims: Vec::new(),
         anim_errors: Vec::new(),
+        pagers: Vec::new(),
     };
     let app_root = build_node(renderer, root, &mut ctx);
     // Mirrors `phase_1/webruntime/index.html`'s `#zkite-root` CSS (`min-height:100%;
@@ -374,6 +376,7 @@ pub fn build(renderer: &mut Renderer, root: &RawNode, focused: Option<&FocusedFi
     let root_id = renderer.container("flex flex-col w-full h-full", |_| vec![app_root]);
     BuiltTree {
         root: root_id,
+        pagers: ctx.pagers,
         a11y_root: app_root,
         node_ids: ctx.node_ids,
         events: ctx.events,
@@ -393,6 +396,7 @@ pub fn build(renderer: &mut Renderer, root: &RawNode, focused: Option<&FocusedFi
 /// them is populated (or read) once per node, deep inside `build_node`'s recursion.
 #[derive(Default)]
 struct BuildCtx<'a> {
+    pagers: Vec<(Arc<str>, NodeId, usize, usize)>,
     node_ids: FxHashMap<NodeId, Arc<str>>,
     events: FxHashMap<Arc<str>, Vec<Arc<str>>>,
     text_fields: FxHashSet<Arc<str>>,
@@ -407,7 +411,11 @@ struct BuildCtx<'a> {
 
 fn build_node(renderer: &mut Renderer, node: &RawNode, ctx: &mut BuildCtx) -> NodeId {
     if node.tag == "#text" {
-        return renderer.text(&node.classes, node.text.clone().unwrap_or_default());
+        return renderer.text_with_options(&node.classes, node.text.clone().unwrap_or_default(), zkite_renderer::TextOptions {
+            wrap: node.attrs.get("text_wrap").and_then(|v| v.as_bool()).unwrap_or(true),
+            max_lines: node.attrs.get("text_max_lines").and_then(|v| v.as_u64()).map(|n| n.max(1) as usize),
+            ellipsis: node.attrs.get("text_ellipsis").and_then(|v| v.as_bool()).unwrap_or(false),
+        });
     }
 
     // `TextField` (`phase_1/zkite_py/src/zkite/widgets.py`) deliberately emits no
@@ -512,6 +520,14 @@ fn build_node(renderer: &mut Renderer, node: &RawNode, ctx: &mut BuildCtx) -> No
         }
         if let Some(control) = control_of(node) {
             ctx.controls.insert(zkite_id.clone(), control);
+        }
+        if let (Some(index), Some(count)) = (
+            node.attrs.get("pager_index").and_then(|v| v.as_u64()),
+            node.attrs.get("pager_count").and_then(|v| v.as_u64()),
+        ) {
+            if count > 0 && index < count {
+                ctx.pagers.push((zkite_id.clone(), id, index as usize, count as usize));
+            }
         }
         ctx.node_ids.insert(id, zkite_id.clone());
         if !node.events.is_empty() {
@@ -815,6 +831,9 @@ fn a11y_role(node: &RawNode) -> accesskit::Role {
         Some("switch") => return Role::Switch,
         Some("checkbox") => return Role::CheckBox,
         Some("radio") => return Role::RadioButton,
+        Some("tab") => return Role::Tab,
+        Some("tablist") => return Role::TabList,
+        Some("tabpanel") => return Role::TabPanel,
         // `Select` and its popup (../PLAN.md §33). The first two are what Android's
         // own glue turns into real platform classes — `accesskit_android::node`'s
         // `class_name()` maps `ComboBox` to `android.widget.Spinner` and `ListBox` to
@@ -919,6 +938,29 @@ fn attr_str(attrs: &serde_json::Map<String, serde_json::Value>, key: &str) -> St
 mod tests {
     use super::*;
 
+    #[test]
+    fn tab_page_keeps_nested_scroll_view_bounded() {
+        let _py = lock_python();
+        let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let app = std::env::temp_dir().join(format!("zkite_tabs_scroll_{}", std::process::id()));
+        std::fs::create_dir_all(&app).unwrap();
+        std::fs::write(app.join("main.py"), r#"
+from zkite import Tabs, Text, ScrollView, SystemBars
+def view():
+    return SystemBars(Tabs("flex-1", Text("", "first"),
+        ScrollView("flex-1", *[Text("p-5", f"Row {i}") for i in range(100)], key="list"),
+        labels=["First", "List"], index=1, on_change=lambda i: None, key="tabs"))
+"#).unwrap();
+        let json = embed::setup(&python_prefix(), repo.join("phase_1/zkite_py/src").to_str().unwrap(), app.to_str().unwrap(), &|_| {}).unwrap();
+        let mut r = test_renderer();
+        let built = build(&mut r, &RawNode::from_json(&json).unwrap(), None);
+        r.layout(built.root, 432.0, 889.0);
+        let nodes = r.positioned(built.root, &Default::default());
+        let list = nodes.iter().find(|n| built.zkite_id(n.node) == Some("list")).unwrap();
+        assert!(list.rect.3 < 889.0, "list escaped viewport: {:?}", list.rect);
+        assert!(r.max_scroll(list.node, zkite_renderer::ScrollAxis::Y) > 1000.0);
+    }
+
     /// Serialises every test that boots the embedded interpreter.
     ///
     /// There is exactly one CPython per process (`embed`'s `INIT: Once`) and exactly
@@ -952,6 +994,44 @@ mod tests {
         let bold_bytes = std::fs::read(dir.join("DejaVuSans-Bold.ttf"))
             .expect("DejaVu Sans Bold must be installed for zkite_pybridge's tests");
         Renderer::new(zkite_renderer::FontSet::sans_only(bytes, bold_bytes)).unwrap()
+    }
+
+    #[test]
+    fn text_column_wraps_long_content_within_its_width() {
+        let mut renderer = test_renderer();
+        let tree = RawNode::from_json(r##"{
+            "tag":"span", "id":"paragraph", "classes":"flex flex-col w-full text-base",
+            "children":[{"tag":"#text","text":"A little Python. A beautiful Android app. Your next idea starts here."}]
+        }"##).unwrap();
+        let built = build(&mut renderer, &tree, None);
+        renderer.layout(built.root, 180.0, 640.0);
+        let nodes = renderer.positioned(built.root, &FxHashMap::default());
+        let text = nodes.iter().find(|p| p.text.is_some()).unwrap();
+        assert!(text.rect.2 <= 180.0);
+        assert!(text.rect.3 > 32.0, "paragraph should occupy multiple lines");
+    }
+
+    #[test]
+    fn pager_pages_fill_viewport_and_have_horizontal_travel() {
+        let mut renderer = test_renderer();
+        let tree = RawNode::from_json(r#"{
+            "tag":"div", "id":"tabs", "classes":"flex flex-row flex-1 min-h-0 overflow-x-auto",
+            "attrs":{"pager_index":1,"pager_count":3}, "events":["change"],
+            "children":[
+                {"tag":"div","id":"a","classes":"w-full h-full shrink-0 min-w-0"},
+                {"tag":"div","id":"b","classes":"w-full h-full shrink-0 min-w-0"},
+                {"tag":"div","id":"c","classes":"w-full h-full shrink-0 min-w-0"}
+            ]
+        }"#).unwrap();
+        let built = build(&mut renderer, &tree, None);
+        renderer.layout(built.root, 360.0, 640.0);
+        assert_eq!(built.pagers.len(), 1);
+        assert_eq!(built.pagers[0].2, 1);
+        assert_eq!(renderer.max_scroll(built.pagers[0].1, zkite_renderer::ScrollAxis::X), 720.0);
+        for page in renderer.positioned(built.root, &FxHashMap::default()).iter()
+            .filter(|p| matches!(built.zkite_id(p.node), Some("a" | "b" | "c"))) {
+            assert_eq!(page.rect.2, 360.0);
+        }
     }
 
     #[test]
@@ -2294,6 +2374,7 @@ def view(s: S):
     #[test]
     fn slider_gets_numeric_range_not_a_text_value() {
         let ctx = BuildCtx {
+            pagers: Vec::new(),
             node_ids: FxHashMap::default(),
             events: FxHashMap::default(),
             text_fields: FxHashSet::default(),

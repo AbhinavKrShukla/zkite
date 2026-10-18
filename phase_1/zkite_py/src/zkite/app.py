@@ -14,6 +14,7 @@ import types
 from typing import Any, Callable
 
 from . import _store as _store_mod
+from . import _tasks
 from .errors import format_error_overlay, format_error_tree, log_error, log_recovered
 from .widgets import RenderContext, Widget
 
@@ -88,6 +89,7 @@ class App:
         # Found by writing §34's own demo app, which called `update()` from `view()`
         # on its first draft.
         self._rendering = False
+        _tasks.bind_app(self)
         _store_mod.set_render_callback(self._render_all)
 
     def on_render(self, callback: Callable[[str], None] | None) -> None:
@@ -119,8 +121,11 @@ class App:
 
     def use_module(self, module: types.ModuleType) -> None:
         """Point the app at a freshly reloaded module (see reload.py)."""
-        self.module = module
-        self.view_fn = _find_view(module)
+        view_fn = _find_view(module)
+        with self._lock:
+            _tasks.cancel_tasks()
+            self.module = module
+            self.view_fn = view_fn
 
     def _run_view(self) -> Widget:
         kwargs = _resolve_store_args(self.view_fn)
@@ -305,8 +310,9 @@ def _find_view(module: types.ModuleType) -> Callable[..., Widget]:
     view_fn = getattr(module, "view", None)
     if view_fn is None or not callable(view_fn):
         raise AttributeError(
-            f"{module.__name__} has no module-level `view` function "
-            "(zkite's entry point — see plan1.md §8)"
+            f"{module.__name__} must define a callable `view()` function "
+            "that returns a ZKite widget. For example: "
+            'def view(): return Text("text-lg", "Hello")'
         )
     return view_fn
 

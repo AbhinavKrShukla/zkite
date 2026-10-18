@@ -121,17 +121,38 @@ fn download_all(
     out_dir: &Path,
     additional_args: &[String],
 ) -> Result<Vec<PathBuf>> {
-    for spec in specs {
-        validate_markers(spec)?;
-    }
     std::fs::create_dir_all(out_dir)?;
-    let output = pip_command(python)
+    let machine = match target.abi.as_str() {
+        "arm64_v8a" => "aarch64", "x86_64" => "x86_64",
+        other => bail!("unsupported Android ABI: {other}"),
+    };
+    let full = include_str!("../python/runtime-version.txt").trim();
+    let minor = full.rsplit_once('.').context("invalid configured Python version")?.0;
+    anyhow::ensure!(minor.replace('.', "") == target.py_version,
+        "configured Python runtime {full} does not match target {}", target.py_version);
+    // Android release corresponding to the supported minimum API. Kernel/build
+    // identifiers vary between devices, so their portable marker value is empty.
+    let release = match target.api_level {
+        24 | 25 => "7", 26 | 27 => "8", 28 => "9", 29 => "10", 30 => "11",
+        31 | 32 => "12", 33 => "13", 34 => "14", 35 => "15", 36 => "16", _ => "",
+    };
+    let environment = serde_json::json!({
+        "implementation_name": "cpython", "implementation_version": full,
+        "os_name": "posix", "platform_machine": machine,
+        "platform_release": release, "platform_system": "Android", "platform_version": "",
+        "python_full_version": full, "platform_python_implementation": "CPython",
+        "python_version": minor, "sys_platform": "android",
+    });
+    let output = Command::new(python)
+        .arg("-c").arg(include_str!("../python/resolve_android.py"))
+        .arg(vendored_pip_pyz().unwrap_or_default())
+        .arg(environment.to_string())
         .args([
             "download", "--disable-pip-version-check", "--no-input",
             // The loader supports pure Python only. Restrict candidate selection,
             // so optional native accelerators cannot shadow usable universal wheels.
             "--platform", "any",
-            "--python-version", &target.py_version,
+            "--python-version", full,
             "--implementation", "py", "--abi", "none",
             "--only-binary=:all:", "-d",
         ])
@@ -155,28 +176,6 @@ fn download_all(
     Ok(wheels)
 }
 
-fn validate_markers(requirement: &str) -> Result<()> {
-    let Some((_, marker)) = requirement.split_once(';') else { return Ok(()) };
-    // pip's --platform changes wheel tags, but evaluates environment markers on
-    // the host. Reject markers we cannot evaluate honestly for the Android target
-    // instead of silently omitting a dependency on Windows/macOS/Linux.
-    for variable in [
-        "sys_platform", "os_name", "platform_system", "platform_machine",
-        "platform_release", "platform_version", "python_full_version",
-        "implementation_version",
-    ] {
-        if marker.split(|c: char| !c.is_ascii_alphanumeric() && c != '_').any(|word| word == variable) {
-            bail!(
-                "dependency {requirement:?} uses the target-dependent marker `{variable}`; \
-                 pip evaluates this on the build host, not Android. ZKite cannot safely package \
-                 it yet; use a dependency release without this marker or supply a wheel whose \
-                 dependency metadata is already resolved for Android"
-            );
-        }
-    }
-    Ok(())
-}
-
 fn validate_build_wheel(path: &Path) -> Result<()> {
     let filename = path.file_name().context("wheel has no filename")?.to_string_lossy();
     let (_, tag) = parse_wheel_filename(&filename).context("invalid wheel filename")?;
@@ -196,27 +195,7 @@ fn validate_build_wheel(path: &Path) -> Result<()> {
         }
         if name.ends_with(".dist-info/METADATA") {
             has_metadata = true;
-            let mut metadata = String::new();
-            std::io::Read::read_to_string(&mut entry, &mut metadata)?;
-            // Unfold continuation lines before reading Requires-Dist fields.
-            let mut fields: Vec<String> = Vec::new();
-            for line in metadata.lines().take_while(|line| !line.is_empty()) {
-                if line.starts_with([' ', '\t']) {
-                    if let Some(previous) = fields.last_mut() {
-                        previous.push(' ');
-                        previous.push_str(line.trim());
-                    }
-                } else {
-                    fields.push(line.to_owned());
-                }
-            }
-            for field in fields {
-                if let Some((key, value)) = field.split_once(':') {
-                    if key.eq_ignore_ascii_case("Requires-Dist") {
-                        validate_markers(value.trim()).with_context(|| format!("{filename}"))?;
-                    }
-                }
-            }
+
         }
     }
     if !has_metadata {
@@ -378,6 +357,28 @@ mod tests {
     }
 
     #[test]
+    fn android_markers_and_extras_are_evaluated_per_package() {
+        let python = crate::host_python::find(Some((3, 14))).unwrap();
+        let repo = tempfile::tempdir().unwrap();
+        fixture_wheel(repo.path(), "marker_parent", "Provides-Extra: standard\nRequires-Dist: marker-child\nRequires-Dist: never-win; sys_platform == 'win32'\nRequires-Dist: marker-extra; extra == 'standard'\nRequires-Dist: marker-arm; platform_machine == 'aarch64'\nRequires-Dist: marker-x86; platform_machine == 'x86_64'\n");
+        fixture_wheel(repo.path(), "marker_child", "Provides-Extra: standard\nRequires-Dist: never-global-extra; extra == 'standard'\nRequires-Dist: marker-android; sys_platform == 'android' and platform_system == 'Android' and os_name == 'posix' and python_version == '3.14'\n");
+        for name in ["marker_extra", "marker_arm", "marker_x86", "marker_android"] {
+            fixture_wheel(repo.path(), name, "");
+        }
+        let args = vec!["--no-index".into(), "--find-links".into(), repo.path().display().to_string()];
+        for abi in ["arm64_v8a", "x86_64"] {
+            for extras in ["", "[standard]"] {
+                let dest = tempfile::tempdir().unwrap();
+                let target = AndroidTarget { api_level: 29, abi: abi.into(), py_version: "314".into() };
+                let wheels = download_all(&python, &target, &[format!("marker-parent{extras}")], dest.path(), &args).unwrap();
+                assert_eq!(wheels.len(), if extras.is_empty() { 4 } else { 5 });
+                let arch = if abi == "arm64_v8a" { "marker_arm" } else { "marker_x86" };
+                assert!(wheels.iter().any(|p| p.file_name().unwrap().to_string_lossy().starts_with(arch)));
+            }
+        }
+    }
+
+    #[test]
     fn resolves_transitive_dependencies_offline_for_each_android_abi() {
         let python = crate::host_python::find(Some((3, 14))).unwrap();
         let repo = tempfile::tempdir().unwrap();
@@ -429,13 +430,10 @@ mod tests {
     }
 
     #[test]
-    fn rejects_host_specific_markers_and_native_wheels() {
+    fn allows_marker_metadata_but_rejects_native_wheels() {
         let repo = tempfile::tempdir().unwrap();
         let conditional = fixture_wheel(repo.path(), "conditional", "Requires-Dist: win-dep; sys_platform == 'win32'\n");
-        let error = format!("{:#}", validate_build_wheel(&conditional).unwrap_err());
-        assert!(error.contains("sys_platform"), "{error}");
-        assert!(validate_markers("foo; python_version >= '3.14'").is_ok());
-        assert!(validate_markers("foo; os_name == 'posix'").is_err());
+        assert!(validate_build_wheel(&conditional).is_ok());
         let native = repo.path().join("native-1.0-cp314-cp314-android_26_arm64_v8a.whl");
         assert!(validate_build_wheel(&native).unwrap_err().to_string().contains("native wheels"));
     }

@@ -1,0 +1,26 @@
+diff --git a/pack-aab/src/lib.rs b/pack-aab/src/lib.rs
+index 81e9e48..68a695f 100644
+--- a/pack-aab/src/lib.rs
++++ b/pack-aab/src/lib.rs
+@@ -213,7 +213,7 @@ pub fn construct_aab(
+     let res_clone = resources.clone();
+     for res in resources {
+         if let Resource::File(res_file) = res {
+-            let res_bytes = if res_file.subdirectory == "xml" {
++            let res_bytes = if res_file.name.ends_with(".xml") {
+                 let xml_node = xml_string_to_proto_xml(
+                     &mut Cursor::new(res_file.contents.clone()),
+                     &res_clone
+diff --git a/pack-asset-compiler/src/resource_internal_types.rs b/pack-asset-compiler/src/resource_internal_types.rs
+index 057d6ff..c046d5d 100644
+--- a/pack-asset-compiler/src/resource_internal_types.rs
++++ b/pack-asset-compiler/src/resource_internal_types.rs
+@@ -70,7 +70,7 @@ impl FileResource {
+     /// to a [special format](https://cs.android.com/android/platform/superproject/main/+/main:frameworks/base/libs/androidfw/include/androidfw/ResourceTypes.h;l=244)
+     /// unique to AAPT.
+     pub fn as_bytes_for_apk(&self, resources: &[Resource]) -> Result<Vec<u8>> {
+-        if self.subdirectory == "xml" {
++        if self.name.ends_with(".xml") {
+             let (parsed_xml_res_chunk, _) =
+                 xml_to_res_chunk(&mut Cursor::new(self.contents.clone()), resources)?;
+             Ok(parsed_xml_res_chunk.to_bytes()?)

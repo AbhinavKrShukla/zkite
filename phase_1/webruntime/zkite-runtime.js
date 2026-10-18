@@ -358,6 +358,33 @@
     return true;
   }
 
+  const pagerState = new WeakMap();
+  function syncPagers(root) {
+    root.querySelectorAll("[data-zkite-pager]").forEach(el => {
+      const index = Number(el.getAttribute("data-zkite-pager"));
+      let state = pagerState.get(el);
+      if (!state) {
+        state = { index, timer: null };
+        pagerState.set(el, state);
+        el.scrollLeft = index * el.clientWidth;
+        el.addEventListener("scroll", () => {
+          clearTimeout(state.timer);
+          state.timer = setTimeout(() => {
+            if (!el.isConnected || !el.clientWidth) return;
+            const page = Math.round(el.scrollLeft / el.clientWidth);
+            if (page !== state.index && window.ZKiteNative) {
+              state.index = page;
+              window.ZKiteNative.dispatch(el.id, "change", String(page));
+            }
+          }, 160);
+        });
+      } else if (state.index !== index) {
+        state.index = index;
+        el.scrollTo({ left: index * el.clientWidth, behavior: "smooth" });
+      }
+    });
+  }
+
   function applyHtml(html) {
     const root = document.getElementById(ROOT_ID);
     if (!root) {
@@ -366,6 +393,7 @@
     renderStartedAt = window.performance.now();
     const wrapped = `<div id="${ROOT_ID}">${html}</div>`;
     window.morphdom(root, wrapped, { onBeforeElUpdated: preserveFocusedInputValue });
+    syncPagers(root);
     const applyMs = window.performance.now() - renderStartedAt;
     reportVirtualViewports();
     // Order matters: the first-paint report has to be armed before the re-render

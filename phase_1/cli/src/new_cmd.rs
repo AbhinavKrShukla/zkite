@@ -113,10 +113,10 @@ mod tests {
         let dir = tempdir().unwrap();
         run("myapp", dir.path()).unwrap();
         let main_py = fs::read_to_string(dir.path().join("myapp/main.py")).unwrap();
-        assert!(main_py.contains("def view(c: Counter):"));
+        assert!(main_py.contains("def view(s: Welcome):"));
         // class string first (see ../../PLAN.md §3's finding), not content first
-        assert!(main_py.contains("Text(\"text-7xl"));
-        assert!(main_py.contains("Button(\"px-6"));
+        assert!(main_py.contains("Text(\"w-full text-3xl"));
+        assert!(main_py.contains("Button(\"bg-orange-600"));
     }
 
     #[test]

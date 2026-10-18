@@ -12,10 +12,10 @@ historical proposals and experiments; they are not installation instructions.
 
 The complete distribution is `zkite`; it installs matching `zkite-framework` and
 `zkite-payload` dependencies. The command and Python import are both `zkite`.
-The current release is `1.1.1`. Install it with:
+The current release is `1.1.2`. Install it with:
 
 ```bash
-python -m pip install zkite==1.1.1
+python -m pip install zkite==1.1.2
 ```
 
 For the extended learner knowledge base, see
@@ -39,7 +39,7 @@ Install the Windows x86_64 distribution from PyPI:
 
 ```powershell
 py -3.14 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install zkite==1.1.1
+.\.venv\Scripts\python.exe -m pip install zkite==1.1.2
 adb devices
 .\.venv\Scripts\zkite.exe new hello
 cd hello
@@ -60,7 +60,7 @@ Install the Linux x86_64 distribution from PyPI:
 ```bash
 python3.14 -m venv .venv
 . .venv/bin/activate
-python -m pip install zkite==1.1.1
+python -m pip install zkite==1.1.2
 adb devices
 zkite new hello
 cd hello
@@ -81,7 +81,7 @@ x86_64 are the supported host targets for this release; a macOS wheel is not inc
 | `zkite build apk` | Creates signed per-ABI APKs in `dist/`. |
 | `zkite build aab` | Creates an Android App Bundle in `dist/`. |
 | `zkite doctor` | Checks the payload, Python, dependency tooling, and connected device. |
-| `zkite keygen --out zkite-release` | Creates a signing PEM and PKCS#12 keystore. |
+| `zkite keygen` | Creates a signing PEM and PKCS#12 keystore. |
 
 New projects include a `.gitignore` for local `.zkite/` state, build output, signing
 keys, Python environments and caches, local environment files, and OS/editor
@@ -113,7 +113,10 @@ silently uninstall your existing app.
 
 ## 3. Your first screen
 
-Replace `main.py` with:
+`zkite new` generates an orange-and-white Discover/Playground app with swipeable
+tabs and a save interaction. Existing projects keep their own `main.py`.
+
+For a smaller state-management example, replace `main.py` with:
 
 ```python
 from zkite import Button, Column, Text, store
@@ -177,6 +180,27 @@ Lengths describe logical layout units; the renderer applies device density. Give
 scroll containers bounded space such as `flex-1`. Unsupported CSS utilities do not
 become supported simply because Tailwind's editor extension recognizes them.
 See [widget reference](docs/widgets.md) for the detailed widget/style reference.
+
+### Text wrapping and overflow
+
+Text wraps within its available width by default, including long URLs and words.
+Text retains its natural height in vertical lists; use `flex-1` when a text item
+should share constrained space in a row.
+Use these explicit controls on both Android and WebView:
+
+```python
+Text("flex-1", title, multiline=False, overflow="ellipsis")
+Text("w-full", summary, max_lines=3, overflow="ellipsis")
+Text("w-full", description, max_lines=2, overflow="clip")
+Text("", marquee, wrap=False, overflow="visible")
+```
+
+`overflow` accepts `clip` (default), `ellipsis`, or `visible`. `max_lines` must be
+a positive integer. `multiline=False` selects one unwrapped line; `wrap=False`
+also disables wrapping. Native truncation respects Unicode grapheme boundaries.
+Ellipsis needs a constrained width, supplied by the parent or a width class.
+Avoid multiple independently styled child widgets inside one truncated Text;
+apply line limits to each text paragraph separately.
 
 ## 5. Forms and events
 
@@ -250,6 +274,36 @@ image data URIs render natively. Network image loading and intrinsic image sizin
 are not implemented. Images exceeding 16,777,216 pixels are rejected before decoding
 allocates their output buffer; resize large assets before shipping.
 
+### Swipeable tabs
+
+```python
+from zkite import ScrollView, Tabs, Text, store
+
+@store
+class Screen:
+    tab: int = 0
+
+def view(s: Screen):
+    return Tabs("flex-1",
+        ScrollView("flex-1", Text("p-6", "Chats")),
+        ScrollView("flex-1", Text("p-6", "Status")),
+        ScrollView("flex-1", Text("p-6", "Calls")),
+        labels=["Chats", "Status", "Calls"], index=s.tab,
+        on_change=lambda index: s.update(tab=index), key="main-tabs",
+    )
+```
+
+The selected index is controlled by your store. Native pages track horizontal
+finger movement, then animate to a page boundary; vertical scrolling stays with
+the page's scroll view. Taps animate to the selected page. Pages remain mounted,
+so their vertical scroll offsets survive switching. Use a stable, unique key for
+each tab group and keep expensive side effects out of page construction.
+The WebView backend uses CSS scroll snapping and smooth programmatic scrolling.
+
+Native scroll momentum adapts to gesture velocity and display density, using
+elapsed time rather than a fixed number of frames. Pausing before release stops
+stale movement from creating a fling. Keep scroll regions bounded.
+
 ## 7. Navigation
 
 Declare named screen functions and register them in a `Nav`:
@@ -282,10 +336,54 @@ across process death is not implemented.
 
 ## 8. Async work and existing animations
 
-Event handlers may be `async def`; ZKite runs awaitables on its background asyncio
-loop. Update a store with results. Avoid blocking network/file work in `view()` or
-synchronous handlers, and use timeouts for network requests. Android network access
-requires `permissions = ["INTERNET"]` in the configuration below.
+`view()` and ordinary event handlers run synchronously. Keep them short: doing an
+HTTP request inside either blocks input and rendering until it returns. Use `Task`
+for blocking I/O. Create tasks at module scope, start them from an event, and read
+their reactive state in `view()`.
+
+```python
+import json
+from urllib.request import urlopen
+from zkite import Button, Column, Task, Text
+
+request = Task()
+
+def fetch():
+    with urlopen("https://api.example.com/items", timeout=15) as response:
+        return json.loads(response.read())
+
+def view():
+    return Column("flex-1 p-6 gap-4 bg-white",
+        Button("bg-orange-600 text-white p-4 rounded-xl", "Refresh",
+               on_tap=lambda: request.start(fetch), disabled=request.loading),
+        Text("text-slate-700", "Loading…" if request.loading else str(request.data)),
+        Text("text-red-700", str(request.error) if request.error else ""),
+    )
+```
+
+Replace the example endpoint with your service. Include `"INTERNET"` in
+`app.json` → `android.permissions` (new projects already do).
+
+`Task.start(fn, *args, **kwargs)` returns immediately. Four workers run concurrently,
+with a bounded admission limit of 32 running/queued jobs. Excess submissions raise
+`RuntimeError`; disable or debounce repeated triggers in the UI. Return data from
+workers instead of changing widgets or stores in worker code. Completion updates
+`loading`, `data`, and `error` under the app's render lock and pushes a fresh frame.
+The previous successful `data` remains available during refresh or failure.
+
+Starting the same task again invalidates its previous result. `cancel()` and a
+successful hot reload also discard outstanding results. Cancellation cannot stop
+an already running Python function or undo a remote operation; network timeouts
+are still required. Errors are exposed in `task.error`, and a new start clears it.
+Do not call `Future.result()`, sleep, or run HTTP calls in the UI handler. This API
+accepts synchronous callables, including `urllib` and synchronous HTTP clients.
+For heavy CPU work, use a native implementation that releases the GIL or move the
+computation to a service; worker threads are primarily an I/O solution.
+
+Event handlers may also be `async def`; ZKite schedules awaitables on its background
+asyncio loop. An async function still blocks its loop if it calls a synchronous
+HTTP client directly. Use `Task` for blocking I/O, or a compatible async client
+with timeouts.
 
 The existing native animation API supports opacity and X/Y translation:
 
@@ -357,6 +455,14 @@ App settings live in `app.json`. No package manager or `pyproject.toml` is requi
 Omit `icon` to use the bundled ZKite logo. Otherwise provide a real square PNG,
 preferably at least 192×192, relative to `app.json`. The `assets/` directory is
 packaged recursively; use `Image(..., src="assets/photo.png")` for its images.
+Builds and previews use full-bleed adaptive icons. Use opaque artwork without
+baked-in padding; Android applies its launcher mask and may crop the outer edges.
+Transparent margins in the source image remain transparent.
+
+Native text uses Android's installed Noto emoji fonts, including color and flag
+fallbacks. Supported sequences depend on the device font. Native renderer updates
+require rebuilding/reinstalling the app or restarting the updated preview; Python
+hot reload alone cannot replace the renderer.
 
 `zkite new hello .` creates the scaffold in the current directory, refusing to
 replace existing scaffold paths. Unrelated files, including `pyproject.toml`, stay
@@ -379,9 +485,54 @@ Declare third-party packages in `requirements.txt` (one requirement per line,
 including version constraints; blank lines and comments are allowed), or use
 `[project].dependencies` in an optional `pyproject.toml` managed by uv or another
 tool. Pip options, includes and line continuations in requirements files are not
-supported. Alternatively, `app.json` can contain a `dependencies` array; it replaces
-the pyproject dependency list. Requirements are added to either list. Packages
+supported. App identity stays in `app.json`; dependency declarations belong in
+standard Python files. Legacy app.json dependencies are merged with a deprecation
+notice, never used to erase pyproject requirements. Packages
 merely installed on your computer are not automatically shipped.
+
+Dependency markers use the Android target environment, not your computer's OS:
+ARM64 uses `aarch64`, x86_64 uses `x86_64`, and Python marker versions match the
+bundled CPython runtime (3.14.6 in this release). Extras are tracked separately for
+each package. A false marker skips that dependency; a true marker resolves and
+validates it normally. Pip retains version backtracking. Android release markers
+use the minimum SDK baseline; device-specific kernel/build values are unavailable.
+Applicable dependencies requiring unsupported native wheels still fail clearly.
+
+### A pure-Python ASGI server
+
+These dependencies can stay in `pyproject.toml`; no copy is needed in `app.json`:
+
+```toml
+[project]
+name = "my-app"
+version = "0.1.0"
+dependencies = [
+    "starlette==1.8.0",
+    "uvicorn==0.54.0",
+    "zkite>=1.1.1",
+]
+```
+
+The `zkite` constraint is a minimum; install 1.1.2 to use the APIs in this guide.
+Keep Uvicorn on its pure-Python networking stack:
+
+```python
+import uvicorn
+
+config = uvicorn.Config(
+    app,  # Your ASGI application.
+    host="0.0.0.0",
+    port=8767,
+    loop="asyncio",
+    http="h11",
+    lifespan="off",
+)
+```
+
+Do not start a long-running server inside `view()` or a synchronous UI callback.
+Manage its startup and shutdown outside the UI thread. Avoid `uvicorn[standard]`
+unless every extra dependency has supported Android wheels; choosing an extra
+can legitimately make a previously optional native dependency required.
 
 Existing projects without `app.json` retain support for `[tool.zkite]` settings in
 `pyproject.toml`. Once `app.json` exists, it supplies all app identity settings.
@@ -411,18 +562,21 @@ An explicit `--devshell-apk` retains the identity built into that custom APK.
 
 Dependency resolution downloads a complete wheel graph for every selected Android
 ABI. This release supports pure-Python packages. It fails explicitly if a dependency
-is missing, requires native code, uses unsupported host-dependent environment
-markers, or resolves to different contents across ABIs. Package metadata and package
+is missing, requires native code, or resolves to different contents across ABIs.
+Dependency markers are evaluated for Android, with extras tracked per package. Package metadata and package
 data inside wheels are retained. There is no on-device pip installation step.
 
 ```bash
-zkite keygen --out zkite-release --cn "My company"
-zkite build apk --abi arm64-v8a --keystore zkite-release.pem
-zkite build aab --keystore zkite-release.pem
+zkite keygen --cn "My company"
+zkite build apk --abi arm64-v8a
+zkite build aab
 ```
 
-Keep your release key securely and reuse it. Do not publish APKs signed with the
-temporary key generated by `zkite build` when `--keystore` is omitted. The key used
+Keys default to `keystore/release.pem` and `keystore/release.p12`, inside an ignored
+folder. Builds reuse the PEM automatically, creating the pair if neither exists.
+Copy this folder to another project to reuse the key, or pass `--keystore PATH`.
+Existing root-level `zkite-release.pem` keys remain a compatibility fallback.
+Back up the folder securely; losing your key prevents app updates. The key used
 by `zkite run` is a development key, not a release-key management system.
 
 ZKite prunes unused stdlib modules by inspecting Python imports. Fully dynamic
@@ -471,7 +625,7 @@ cargo build --release --locked --manifest-path phase_1/cli/Cargo.toml
 ABI=arm64-v8a ZKITE_DEVSHELL=1 phase_3/gpu_harness/scripts/build_apk.sh
 ABI=x86_64 ZKITE_DEVSHELL=1 phase_3/gpu_harness/scripts/build_apk.sh
 python phase_1/cli/scripts/stage_payload.py release/payload --abi arm64-v8a --abi x86_64
-python phase_1/cli/scripts/build_wheels.py --payload release/payload --out release/wheels --version 1.1.1 --verify
+python phase_1/cli/scripts/build_wheels.py --payload release/payload --out release/wheels --version 1.1.2 --verify
 ```
 
 Put JDK 17's `bin` on `PATH` and set `JAVA_HOME` for those release steps. Staging

@@ -383,7 +383,7 @@ fn load_font_set(dir: &str) -> Result<zkite_renderer::FontSet, String> {
     ) {
         let guard = SENDER.lock().unwrap();
         if let Some(tx) = guard.as_ref() {
-            let _ = tx.send(Command::TouchDown { x, y });
+            let _ = tx.send(Command::TouchDown { x, y, at: std::time::Instant::now() });
         }
     }
 
@@ -396,7 +396,7 @@ fn load_font_set(dir: &str) -> Result<zkite_renderer::FontSet, String> {
     ) {
         let guard = SENDER.lock().unwrap();
         if let Some(tx) = guard.as_ref() {
-            let _ = tx.send(Command::TouchMove { x, y });
+            let _ = tx.send(Command::TouchMove { x, y, at: std::time::Instant::now() });
         }
     }
 
@@ -409,7 +409,7 @@ fn load_font_set(dir: &str) -> Result<zkite_renderer::FontSet, String> {
     ) {
         let guard = SENDER.lock().unwrap();
         if let Some(tx) = guard.as_ref() {
-            let _ = tx.send(Command::TouchUp { x, y });
+            let _ = tx.send(Command::TouchUp { x, y, at: std::time::Instant::now() });
         }
     }
 

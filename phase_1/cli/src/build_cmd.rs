@@ -29,7 +29,7 @@ use std::time::Instant;
 use anyhow::{bail, Context, Result};
 
 use zkite_bundler::apk::Package;
-use zkite_bundler::keystore::{self, KeygenOptions};
+use zkite_bundler::keystore;
 use zkite_bundler::manifest_gen::{self, AppIdentity, APPSHELL_ACTIVITY, NATIVESHELL_ACTIVITY};
 use zkite_bundler::zip_extras;
 use pack_asset_compiler::resource_internal_types::FileResource;
@@ -282,27 +282,19 @@ pub fn run(args: BuildArgs) -> Result<BuildOutput> {
     pyc_compile(&python, repo_root, &app_dir)?;
     zip_dir(&app_dir, &assets.join("app.zip"))?;
 
-    let keys = load_or_generate_keys(args.keystore.as_deref())?;
+    let keys = load_or_generate_keys(args.keystore.as_deref(), &args.project_dir)?;
 
     // Resources are ABI-independent; the *manifest* is not, because its `versionCode`
     // now varies per ABI (§17.4 item 2). Built as a closure rather than hoisted, so a
     // future ABI-dependent manifest attribute cannot be added outside the loop the way
     // `versionCode` was.
     let resources = |icon: Vec<u8>| {
-        vec![
-            FileResource {
-                subdirectory: "values".into(),
-                name: "strings.xml".into(),
-                resource_id: 0,
-                contents: manifest_gen::strings_xml(&config.identity),
-            },
-            FileResource {
-                subdirectory: "drawable".into(),
-                name: "icon.png".into(),
-                resource_id: 0,
-                contents: icon,
-            },
-        ]
+        let mut resources = zkite_bundler::launcher_icon::resources(icon);
+        resources.push(FileResource {
+            subdirectory: "values".into(), name: "strings.xml".into(), resource_id: 0,
+            contents: manifest_gen::strings_xml(&config.identity),
+        });
+        resources
     };
 
     let out_dir = args.out.clone().unwrap_or_else(|| args.project_dir.join("dist"));
@@ -453,13 +445,22 @@ pub(crate) fn project_document(project_dir: &Path) -> Result<toml::Value> {
             anyhow::ensure!(["name", "version", "backend", "android", "dependencies"].contains(&key.as_str()), "unknown app.json setting: {key}");
         }
         let mut project = toml::map::Map::new();
-        for key in ["name", "version", "dependencies"] {
+        for key in ["name", "version"] {
             if let Some(value) = app.get(key) {
-                project.insert(key.into(), toml::Value::try_from(value).with_context(|| format!("invalid app.json {key}"))?);
-            } else if key == "dependencies" {
-                if let Some(value) = doc.get("project").and_then(|p| p.get(key)) { project.insert(key.into(), value.clone()); }
+                project.insert(key.into(), toml::Value::try_from(value)?);
             }
         }
+        let mut dependencies = doc.get("project").and_then(|p| p.get("dependencies"))
+            .map(|v| v.as_array().cloned().context("pyproject.toml dependencies must be an array"))
+            .transpose()?.unwrap_or_default();
+        if let Some(legacy) = app.get("dependencies") {
+            eprintln!("  app.json dependencies are deprecated; move them to pyproject.toml or requirements.txt");
+            for value in legacy.as_array().context("app.json dependencies must be an array")? {
+                let value = toml::Value::try_from(value)?;
+                if !dependencies.contains(&value) { dependencies.push(value); }
+            }
+        }
+        project.insert("dependencies".into(), toml::Value::Array(dependencies));
         let mut zkite = toml::map::Map::new();
         for key in ["backend", "android"] {
             if let Some(value) = app.get(key) { zkite.insert(key.into(), toml::Value::try_from(value)?); }
@@ -696,8 +697,8 @@ fn resolve_abis(requested: &[String], shell: &Shell) -> Result<Vec<String>> {
         .collect();
     if available.is_empty() {
         bail!(
-            "no complete prebuilt shell artifacts found under {} — run {} first \
-             (release-pipeline step, see phase_2/PLAN.md §1.1). Expected, per ABI: {}",
+            "no complete prebuilt shell artifacts found under {} — run {} first. \
+             Expected, per ABI: {}",
             shell.artifacts().display(),
             shell.build_script,
             shell.libs.join(", ")
@@ -838,7 +839,7 @@ pub(crate) fn dev_dependencies(project_dir: &Path, abi: &str) -> Result<Option<P
     }
     let config = load_project_config(project_dir)?;
     if config.dependencies.is_empty() { return Ok(None); }
-    let identity = serde_json::to_vec(&("dev-deps-v1", PY_VERSION, abi, config.identity.min_sdk, &config.dependencies))?;
+    let identity = serde_json::to_vec(&("dev-deps-v2-android-markers", PY_VERSION, abi, config.identity.min_sdk, &config.dependencies))?;
     let digest = format!("{:x}", Sha256::digest(identity));
     let cache = project_dir.join(".zkite/dev-dependencies");
     let installed = cache.join(digest);
@@ -1221,11 +1222,7 @@ const MIN_ICON_PX: u32 = 192;
 /// every ZKite app shipped the same bundled square. See phase_3/PLAN.md §21.1 for how
 /// a doc-only feature survived that long.
 ///
-/// **This is the single-PNG version, deliberately.** A Play-quality icon is an
-/// `<adaptive-icon>` in `mipmap-anydpi-v26/` with foreground/background/monochrome
-/// layers plus per-density rasters, and none of that is expressible until `pack`
-/// grows resource-qualifier support (phase_0/README.md §7). That is a `pack` change
-/// before it is a ZKite change — see phase_3/PLAN.md §22.6.
+/// Input is a PNG; packaging wraps it in a full-bleed adaptive icon.
 fn load_icon(icon: Option<&IconSource>, repo_root: &Path) -> Result<Vec<u8>> {
     let Some(icon) = icon else {
         return Ok(std::fs::read(repo_root.join("phase_2/appshell/app/res/drawable/icon.png"))?);
@@ -1302,24 +1299,18 @@ fn sniff_format(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
-fn load_or_generate_keys(keystore: Option<&Path>) -> Result<Keys> {
-    match keystore {
-        Some(path) => keystore::load_pem(path)
-            .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))
-            .with_context(|| "loading --keystore (run `zkite keygen` if you don't have one yet)"),
-        None => {
-            eprintln!(
-                "  ! no --keystore given — signing with an ephemeral testing key. This build \
-                 will not update-install over a release signed with a real key, and must never \
-                 be what you ship. Run `zkite keygen` to create one."
-            );
-            keystore::generate(&KeygenOptions::default())
-                .map_err(|e| anyhow::anyhow!(e))
-                .and_then(|g| {
-                    Keys::from_combined_pem_string(&g.combined_pem).map_err(|e| anyhow::anyhow!("{e}"))
-                })
-        }
-    }
+fn load_or_generate_keys(keystore: Option<&Path>, project: &Path) -> Result<Keys> {
+    let default = project.join("keystore/release.pem");
+    let legacy = project.join("zkite-release.pem");
+    let path = if let Some(explicit) = keystore { explicit.to_path_buf() }
+        else if default.is_file() { default }
+        else if legacy.is_file() { legacy }
+        else {
+            crate::keygen_cmd::run(&project.join("keystore/release"), "zkite", "android")?;
+            default
+        };
+    keystore::load_pem(&path).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))
+        .context("loading signing key; use keystore/release.pem or --keystore PATH")
 }
 
 // There is deliberately no `repo_root()` here any more. It was one of §23.2's four
@@ -1346,6 +1337,19 @@ mod tests {
         v.extend_from_slice(&[8, 2, 0, 0, 0]);
         v.extend_from_slice(&[0, 0, 0, 0]); // crc
         v
+    }
+
+    #[test]
+    fn default_signing_keys_are_private_persistent_and_never_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        load_or_generate_keys(None, dir.path()).unwrap();
+        let pem = dir.path().join("keystore/release.pem");
+        let original = std::fs::read(&pem).unwrap();
+        assert!(dir.path().join("keystore/release.p12").is_file());
+        assert_eq!(std::fs::read_to_string(dir.path().join("keystore/.gitignore")).unwrap(), "*\n");
+        load_or_generate_keys(None, dir.path()).unwrap();
+        assert_eq!(original, std::fs::read(&pem).unwrap());
+        assert!(crate::keygen_cmd::run(&dir.path().join("keystore/release"), "test", "test").is_err());
     }
 
     #[test]

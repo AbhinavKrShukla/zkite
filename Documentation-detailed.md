@@ -1,8 +1,8 @@
-# ZKite 1.1.1 — detailed learner documentation
+# ZKite 1.1.2 — detailed learner documentation
 
-This is the learner-facing knowledge base for ZKite 1.1.1. It describes the implemented native Android framework, its public API, everyday workflows, and practical debugging. It intentionally contains no framework source listings, private release infrastructure, signing material, or credentials. Commands are terminal instructions; API names and configuration keys are reference material.
+This is the learner-facing knowledge base for ZKite 1.1.2. It describes the implemented native Android framework, its public API, everyday workflows, and practical debugging. It intentionally contains no framework source listings, private release infrastructure, signing material, or credentials. Commands are terminal instructions; API names and configuration keys are reference material.
 
-This guide covers ZKite **1.1.1**. See [release notes](CHANGELOG.md) and [release status](docs/status.md) for changes and tested scope.
+This guide covers ZKite **1.1.2**. See [release notes](CHANGELOG.md) and [release status](docs/status.md) for changes and tested scope.
 
 ## Contents and suggested learning order
 
@@ -20,22 +20,23 @@ This guide covers ZKite **1.1.1**. See [release notes](CHANGELOG.md) and [releas
 12. [Forms and text input](#forms-and-text-input)
 13. [Images and icons](#images-and-icons)
 14. [System status and navigation bars](#system-status-and-navigation-bars)
-15. [Navigation between screens](#navigation-between-screens)
-16. [Overlays and selection](#overlays-and-selection)
-17. [Animation](#animation)
-18. [Configuration reference](#configuration-reference)
-19. [Dependencies and networking](#dependencies-and-networking)
-20. [Data and application lifecycle](#data-and-application-lifecycle)
-21. [Command reference](#command-reference)
-22. [Build, sign, and distribute an Android app](#build-sign-and-distribute-an-android-app)
-23. [Windows guide](#windows-guide)
-24. [Troubleshooting](#troubleshooting)
-25. [Performance and accessibility](#performance-and-accessibility)
-26. [Learning exercises](#learning-exercises)
-27. [Release checklist](#release-checklist)
-28. [Frequently asked questions](#frequently-asked-questions)
-29. [Glossary](#glossary)
-30. [Guidance for the documentation website](#guidance-for-the-documentation-website)
+15. [Swipeable tabs](#swipeable-tabs)
+16. [Navigation between screens](#navigation-between-screens)
+17. [Overlays and selection](#overlays-and-selection)
+18. [Animation](#animation)
+19. [Configuration reference](#configuration-reference)
+20. [Dependencies and networking](#dependencies-and-networking)
+21. [Data and application lifecycle](#data-and-application-lifecycle)
+22. [Command reference](#command-reference)
+23. [Build, sign, and distribute an Android app](#build-sign-and-distribute-an-android-app)
+24. [Windows guide](#windows-guide)
+25. [Troubleshooting](#troubleshooting)
+26. [Performance and accessibility](#performance-and-accessibility)
+27. [Learning exercises](#learning-exercises)
+28. [Release checklist](#release-checklist)
+29. [Frequently asked questions](#frequently-asked-questions)
+30. [Glossary](#glossary)
+31. [Guidance for the documentation website](#guidance-for-the-documentation-website)
 
 ## What ZKite does
 
@@ -94,7 +95,7 @@ Run these commands in order:
 
 1. `python3.14 -m venv .venv`
 2. `. .venv/bin/activate`
-3. `python -m pip install zkite==1.1.1`
+3. `python -m pip install zkite==1.1.2`
 4. `zkite --version`
 5. `adb version`
 
@@ -105,7 +106,7 @@ Install Android platform-tools separately if `adb` is unavailable, and add its d
 In PowerShell, run:
 
 1. `py -3.14 -m venv .venv`
-2. `.\.venv\Scripts\python.exe -m pip install zkite==1.1.1`
+2. `.\.venv\Scripts\python.exe -m pip install zkite==1.1.2`
 3. `.\.venv\Scripts\zkite.exe --version`
 4. `adb version`
 
@@ -113,7 +114,7 @@ These commands do not require activating a PowerShell script. If your organizati
 
 ### Install the current release
 
-Install ZKite with `python -m pip install zkite==1.1.1`. Pip installs the matching
+Install ZKite with `python -m pip install zkite==1.1.2`. Pip installs the matching
 framework and Android runtime packages automatically. An Android APK is not a
 pip-installable file.
 
@@ -148,6 +149,8 @@ Run `zkite new myapp`, then `cd myapp`, then `zkite run`. The generated sample i
 
 Wait for the command to finish and inspect the phone. The app should display the starter interface and respond to its controls. Return to the launcher and start it again to verify that it works independently of the terminal. Use `zkite run --logs` when you also want to follow the launched app's Android logs.
 
+The generated app uses an orange-and-white Discover/Playground design, swipeable tabs, and a save interaction. Creating or upgrading the framework does not replace existing app source.
+
 For iterative development, run `zkite dev` from the same project directory. Leave that process running while editing supported Python files. The preview reloads changes on the selected device. Stop the command with Ctrl+C when finished.
 
 Project names can contain letters, digits, underscores, and hyphens, but cannot start with a digit. Use a simple name such as `myapp` for learning. `zkite new myapp` refuses to overwrite an existing directory. `zkite new myapp .` uses the current directory and refuses existing scaffold paths before writing files; unrelated files are retained. It does not convert an arbitrary existing Python program into an Android app.
@@ -161,6 +164,7 @@ Project names can contain letters, digits, underscores, and hyphens, but cannot 
 | `requirements.txt` / `pyproject.toml` | Optional dependency declarations for pip / uv. | Edit and commit as needed. |
 | `zkite.tailwind.json` | Styling/editor configuration created by the scaffold. | Keep with the project. |
 | `.gitignore` | Excludes generated and private local files. | Commit; adjust for your application if necessary. |
+| `keystore/` | Default release PEM and PKCS#12 signing files. | Back up securely; do not commit. |
 | `.zkite/` | Local development state, preview cache, and development signing material. | Keep locally; do not commit. |
 | `dist/` | Built application artifacts. | Treat as build output. |
 | Top-level helper `.py` files | Supported application modules beside `main.py`. | Edit and commit. |
@@ -220,7 +224,7 @@ Most widgets take a **class string first**, followed by their children or visibl
 
 A `key` identifies a widget across updates. Use stable keys when controls move, when list data changes order, or when animation/input state needs to remain associated with the same item. A key should represent the item's identity; an index becomes a poor identity when items are inserted or reordered. Do not create a new random key on every render.
 
-Public exports include the layout and input widgets below, `SystemBars`, `store`, `Nav`, `Navigator`, `NavigationHost`, `Entry`, `Anim`, `AnimEnd`, `Widget`, and `App`. Internal module names are not the supported application API.
+Public exports include `Task`, `Tabs`, the layout and input widgets below, `SystemBars`, `store`, `Nav`, `Navigator`, `NavigationHost`, `Entry`, `Anim`, `AnimEnd`, `Widget`, and `App`. Internal module names are not the supported application API.
 
 ## State and events
 
@@ -240,9 +244,55 @@ Separate transient interface state from durable records. A dialog-open flag is u
 
 Standalone APK/AAB builds show a generic restart message for uncaught Python startup, render and event errors. They do not display the traceback on screen. Developer logs retain diagnostic details, and `zkite dev` retains detailed error overlays. This does not prevent application bugs or Android crash dialogs; handle expected errors in your own UI.
 
-Keep callbacks short enough for responsive input. Move blocking work away from the rendering path, and publish its result through state updates. This release does not promise a general built-in asyncio application lifecycle or networking task manager; choose and test your execution model explicitly.
+Keep callbacks short enough for responsive input. Move blocking work away from the rendering path, and publish its result through state updates. Use the `Task` API below for blocking I/O. Async event callbacks are also supported, but synchronous work inside them still blocks their event loop.
 
 Represent loading, empty, success, and error states in the UI. Prevent repeated actions while a request is already in progress where appropriate. Validate external data and user input before treating it as application state.
+
+### Background I/O with Task
+
+`view()` and ordinary event handlers run synchronously. Keep them short: doing an
+HTTP request inside either blocks input and rendering until it returns. Use `Task`
+for blocking I/O. Create tasks at module scope, start them from an event, and read
+their reactive state in `view()`.
+
+```python
+import json
+from urllib.request import urlopen
+from zkite import Button, Column, Task, Text
+
+request = Task()
+
+def fetch():
+    with urlopen("https://api.example.com/items", timeout=15) as response:
+        return json.loads(response.read())
+
+def view():
+    return Column("flex-1 p-6 gap-4 bg-white",
+        Button("bg-orange-600 text-white p-4 rounded-xl", "Refresh",
+               on_tap=lambda: request.start(fetch), disabled=request.loading),
+        Text("text-slate-700", "Loading…" if request.loading else str(request.data)),
+        Text("text-red-700", str(request.error) if request.error else ""),
+    )
+```
+
+Replace the example endpoint with your service. Include `"INTERNET"` in
+`app.json` → `android.permissions` (new projects already do).
+
+`Task.start(fn, *args, **kwargs)` returns immediately. Four workers run concurrently,
+with a bounded admission limit of 32 running/queued jobs. Excess submissions raise
+`RuntimeError`; disable or debounce repeated triggers in the UI. Return data from
+workers instead of changing widgets or stores in worker code. Completion updates
+`loading`, `data`, and `error` under the app's render lock and pushes a fresh frame.
+The previous successful `data` remains available during refresh or failure.
+
+Starting the same task again invalidates its previous result. `cancel()` and a
+successful hot reload also discard outstanding results. Cancellation cannot stop
+an already running Python function or undo a remote operation; network timeouts
+are still required. Errors are exposed in `task.error`, and a new start clears it.
+Do not call `Future.result()`, sleep, or run HTTP calls in the UI handler. This API
+accepts synchronous callables, including `urllib` and synchronous HTTP clients.
+For heavy CPU work, use a native implementation that releases the GIL or move the
+computation to a service; worker threads are primarily an I/O solution.
 
 ## Layout and styling
 
@@ -269,6 +319,31 @@ A scrolling container needs a constrained viewport. In a column screen, a growin
 
 Use `horizontal=True` for a horizontal `ScrollView`. Place ordinary finite content inside a scroll view; choose `List` for a large dataset with predictable row height. Avoid several competing scroll regions until the simple layout behaves correctly.
 
+Scroll momentum follows a velocity- and density-aware spline sampled by elapsed
+time. A held finger stops stale movement from launching inertia. This does not
+remove the need to keep rendering and event callbacks fast.
+
+### Text wrapping, line limits, and overflow
+
+Text wraps within its available width by default, including long URLs and words.
+Text retains its natural height in vertical lists; use `flex-1` when a text item
+should share constrained space in a row.
+Use these explicit controls on both Android and WebView:
+
+```python
+Text("flex-1", title, multiline=False, overflow="ellipsis")
+Text("w-full", summary, max_lines=3, overflow="ellipsis")
+Text("w-full", description, max_lines=2, overflow="clip")
+Text("", marquee, wrap=False, overflow="visible")
+```
+
+`overflow` accepts `clip` (default), `ellipsis`, or `visible`. `max_lines` must be
+a positive integer. `multiline=False` selects one unwrapped line; `wrap=False`
+also disables wrapping. Native truncation respects Unicode grapheme boundaries.
+Ellipsis needs a constrained width, supplied by the parent or a width class.
+Avoid multiple independently styled child widgets inside one truncated Text;
+apply line limits to each text paragraph separately.
+
 ### Text and theme consistency
 
 Choose a small typography hierarchy and a clear spacing scale. Reuse class strings or project styling conventions rather than making every screen subtly different. Test foreground/background contrast, including disabled and selected controls. Dark app content does not automatically set the Android system-bar colors; use `SystemBars` explicitly.
@@ -286,7 +361,8 @@ The generated styling configuration helps keep project/editor conventions togeth
 | `Grid` | Classes and child widgets. | Grid composition using supported grid utilities. |
 | `Stack` | Classes and child widgets. | Overlapping composition, later children on top. |
 | `ScrollView` | Classes, children, `horizontal`. | Scrolls content within a bounded region. |
-| `Text` | Classes, then visible text/content. | Displays text; first positional argument remains the class string. |
+| `Text` | Classes, content; `wrap`, `multiline`, `max_lines`, `overflow`. | Wraps and clips by default; supports ellipsis and explicit visible overflow. |
+| `Tabs` | Pages, `labels`, `index`, `on_change`, stable `key`. | Controlled selection through header taps or horizontal swipes. |
 | `Icon` | Classes, `name`, optional key. | A named built-in icon; not a general SVG loader. |
 | `Image` | Classes, `src`, `alt`. | Supported local or data-URI image content with explicit layout sizing. |
 | `List` | Classes, `count`, `item_height`, `builder`, `overscan`, key. | Builds the visible part of a fixed-height list. |
@@ -335,6 +411,17 @@ After changing the configured file or replacing its contents, rerun `zkite run` 
 
 If an old icon remains, first confirm that you are inspecting the correct standalone or development app, that the configuration is active, and that the install succeeded. Android launchers may cache icons; the app's Android App info page helps distinguish a launcher cache from a packaging problem. Do not uninstall as the first troubleshooting step because that can erase application data.
 
+Builds and previews wrap the PNG as a full-bleed adaptive icon. Supply opaque
+artwork without baked-in padding. Android applies its launcher mask; outer edges
+may be cropped, and transparent source margins remain transparent.
+
+### Emoji in text
+
+Use Unicode emoji directly in `Text`. Native rendering uses Android's installed
+Noto emoji fonts, including color bitmap and flag fallbacks. Sequence coverage
+depends on the device font version. Install the updated native runtime to pick up
+renderer fixes; Python hot reload alone does not update native code.
+
 ### Images inside the screen
 
 The native `Image` supports PNG and JPEG-family images and supported data URIs. For packaged project assets, put the file in `assets/` or beside `main.py` and use its relative path. Set a meaningful size in the layout. A missing or unconstrained size can look like an image-loading failure.
@@ -364,6 +451,36 @@ The top area containing time, battery, and connection indicators is the Android 
 Wrap the root screen in `SystemBars`, set the desired backgrounds, and use automatic contrast unless the design requires a tested explicit choice. Values can follow store state, so a theme switch can update the bars along with the app. The status and navigation colors can differ.
 
 Android still owns the time, battery display, navigation buttons, gesture behavior, and system interactions. This API styles the surrounding bars; it does not replace their contents. Test both gesture navigation and button navigation where your target devices use them. Support here is for the native backend.
+
+## Swipeable tabs
+
+```python
+from zkite import ScrollView, Tabs, Text, store
+
+@store
+class Screen:
+    tab: int = 0
+
+def view(s: Screen):
+    return Tabs("flex-1",
+        ScrollView("flex-1", Text("p-6", "Chats")),
+        ScrollView("flex-1", Text("p-6", "Status")),
+        ScrollView("flex-1", Text("p-6", "Calls")),
+        labels=["Chats", "Status", "Calls"], index=s.tab,
+        on_change=lambda index: s.update(tab=index), key="main-tabs",
+    )
+```
+
+The selected index is controlled by your store. Native pages track horizontal
+finger movement, then animate to a page boundary; vertical scrolling stays with
+the page's scroll view. Taps animate to the selected page. Pages remain mounted,
+so their vertical scroll offsets survive switching. Use a stable, unique key for
+each tab group and keep expensive side effects out of page construction.
+The WebView backend uses CSS scroll snapping and smooth programmatic scrolling.
+
+Tabs select peer pages; `Nav` below manages a stack with Android Back behavior.
+Use tabs for sections such as Chats, Status, and Calls, and navigation for opening
+a detail screen.
 
 ## Navigation between screens
 
@@ -464,7 +581,7 @@ All app settings come from `app.json` when it exists; legacy TOML app settings a
 |---|---|
 | `name` | Project/distribution-style name used by the app project. |
 | `version` | Application version text. It is independent of the framework release. |
-| `dependencies` (or optional requirements.txt / pyproject dependencies) | Declared Python dependencies to resolve for the app. |
+| `dependencies` | Legacy only; prefer `requirements.txt` or `[project].dependencies`. |
 | `backend` | Rendering backend; native is the default and the supported release path. |
 
 ### Android settings
@@ -489,7 +606,7 @@ Permission declarations do not automatically implement runtime permission reques
 
 For pip projects, create `requirements.txt` with one package requirement per line, for example `requests==2.32.5`. Blank lines and comments are supported; pip options, recursive includes and line continuations are not. No `pyproject.toml` is required.
 
-For uv or other package managers, use `[project].dependencies` in `pyproject.toml`. An explicit `dependencies` array in `app.json` overrides that list. Requirements from `requirements.txt` are added to either list; avoid conflicting constraints. ZKite does not currently consume uv lockfiles, so use pinned requirements when exact versions matter.
+For uv or other package managers, use `[project].dependencies` in `pyproject.toml`. No dependency list is needed in `app.json`. Its legacy `dependencies` array is merged with a deprecation notice; it does not override pyproject dependencies. Requirements from `requirements.txt` are also merged; avoid conflicting constraints. ZKite does not currently consume uv lockfiles, so use pinned requirements when exact versions matter.
 
 Declare application dependencies in these files. Both `zkite dev` and builds resolve the dependency graph, including transitive requirements, for the requested Android architectures. A package installed in your desktop environment is not automatically included in the Android app.
 
@@ -498,6 +615,52 @@ Declare application dependencies in these files. Both `zkite dev` and builds res
 The supported dependency path is compatible pure-Python wheels. A package may look like Python but depend on compiled extensions or desktop operating-system services. Desktop wheels for Windows or Linux cannot simply be copied into Android. An unavailable or unsupported dependency should fail the build rather than be silently omitted.
 
 Start with a small dependency set and build early. Add dependencies one at a time so compatibility failures are easy to locate. Pin versions where reproducibility matters, and verify that each dependency works in the actual Android environment, not only on your computer.
+
+### Android markers and extras
+
+Dependency markers use the Android target environment, not your computer's OS:
+ARM64 uses `aarch64`, x86_64 uses `x86_64`, and Python marker versions match the
+bundled CPython runtime (3.14.6 in this release). Extras are tracked separately for
+each package. A false marker skips that dependency; a true marker resolves and
+validates it normally. Pip retains version backtracking. Android release markers
+use the minimum SDK baseline; device-specific kernel/build values are unavailable.
+Applicable dependencies requiring unsupported native wheels still fail clearly.
+
+### A pure-Python ASGI server
+
+These dependencies can stay in `pyproject.toml`; no copy is needed in `app.json`:
+
+```toml
+[project]
+name = "my-app"
+version = "0.1.0"
+dependencies = [
+    "starlette==1.8.0",
+    "uvicorn==0.54.0",
+    "zkite>=1.1.1",
+]
+```
+
+The `zkite` constraint is a minimum; install 1.1.2 to use the APIs in this guide.
+Keep Uvicorn on its pure-Python networking stack:
+
+```python
+import uvicorn
+
+config = uvicorn.Config(
+    app,  # Your ASGI application.
+    host="0.0.0.0",
+    port=8767,
+    loop="asyncio",
+    http="h11",
+    lifespan="off",
+)
+```
+
+Do not start a long-running server inside `view()` or a synchronous UI callback.
+Manage its startup and shutdown outside the UI thread. Avoid `uvicorn[standard]`
+unless every extra dependency has supported Android wheels; choosing an extra
+can legitimately make a previously optional native dependency required.
 
 ### Network requests
 
@@ -513,7 +676,7 @@ This flag concerns standard-library pruning. It does not add unsupported native 
 
 ## Data and application lifecycle
 
-The 1.0.0 stabilization commit preserves queued render commands and rejects expired Android surfaces during startup/resume. Text-selection callbacks also guard against an uninitialized overlay owner. These fixes are retained in 1.1.1; they do not make in-memory state persistent.
+The 1.0.0 stabilization commit preserves queued render commands and rejects expired Android surfaces during startup/resume. Text-selection callbacks also guard against an uninitialized overlay owner. These fixes are retained in 1.1.2; they do not make in-memory state persistent.
 
 Android can pause, resume, or terminate an app independently of the development terminal. A well-behaved app must tolerate leaving the foreground and returning. In-memory stores represent the current process state; they are not a guarantee of survival after process termination.
 
@@ -564,7 +727,7 @@ Build application artifacts without installing them. A connected phone is unnece
 |---|---|
 | `--abi arm64-v8a` | Include the ARM64 Android architecture. |
 | `--abi x86_64` | Include the x86_64 Android architecture. Repeat `--abi` to select both. |
-| `--keystore PATH` | Supply the permanent signing identity for a distributable build. |
+| `--keystore PATH` | Override automatic release-key discovery with an existing combined PEM. |
 | `--out DIRECTORY` | Choose the output directory; default is project `dist/`. |
 | `--no-prune-stdlib` | Disable standard-library pruning. |
 | `--backend native` | Select native rendering. |
@@ -577,7 +740,7 @@ Checks the local tool and runtime environment. `--adb PATH` selects adb. Read it
 
 ### `zkite keygen`
 
-Creates a combined PEM and a PKCS#12 keystore. `--out BASENAME` controls the file basename; `--cn` controls the certificate common name; `--password` controls the PKCS#12 password. The combined PEM contains private key material and is not protected merely because the PKCS#12 has a password.
+Creates `keystore/release.pem` and `keystore/release.p12` by default, creating the directory and its ignore rule when needed. Existing key files are never overwritten. `--out BASENAME` controls the file basename; `--cn` controls the certificate common name; `--password` controls the PKCS#12 password. The combined PEM contains private key material and is not protected merely because the PKCS#12 has a password.
 
 Use a private directory with appropriate access controls and an intentional password policy. Do not paste signing material into issue reports or commit it to Git. Preserve a secure backup of the actual release identity. A certificate name is descriptive and does not establish store ownership.
 
@@ -585,7 +748,26 @@ Use a private directory with appropriate access controls and an intentional pass
 
 Framework distribution through pip and distribution of your Android app are separate activities. Your users install an APK or obtain the app through an Android distribution channel; they do not need Python, pip, or the ZKite CLI on their phones.
 
-For a test APK, use `zkite build apk --abi arm64-v8a`. For an app release, create and retain the intended signing key, then build with `--keystore PATH_TO_PRIVATE_PEM`. Quote paths containing spaces. Keep that private file outside the distributable output directory.
+Build with `zkite build apk --abi arm64-v8a` or `zkite build aab`. Both discover
+`keystore/release.pem` automatically and reuse it. If no default key exists, the
+build creates the PEM/PKCS#12 pair. You can generate it beforehand:
+
+```bash
+zkite keygen --cn "My company"
+zkite build apk --abi arm64-v8a
+zkite build aab
+```
+
+Selection order is explicit `--keystore PATH`, `keystore/release.pem`, then legacy
+root-level `zkite-release.pem`. If the PKCS#12 exists but its PEM is missing, restore the PEM or explicitly select
+another existing key; generation refuses to overwrite an existing pair member. To sign another app
+with the same key, copy your backed-up pair into its `keystore/` directory or use
+`--keystore` with the original PEM path. Quote paths containing spaces. The folder
+is ignored by Git; keep a secure backup outside the project as well.
+
+`zkite run` continues to use the project's `.zkite/debug.pem` development identity.
+Its development installs and your release-signed builds use separate signing
+workflows.
 
 Before publishing updates, preserve the application package ID and signing identity, increase the application's versioning appropriately, and verify update installation with existing user data. A signing mismatch is not fixed by changing the app label or rebuilding with another random key.
 
@@ -627,8 +809,8 @@ Start by locating the failure stage: installation, project discovery, dependency
 | No project or no `main.py` | Run from the generated project's directory and check filenames. |
 | Dependency cannot be resolved | Inspect the named dependency and its transitive requirements; verify pure-Python Android compatibility. |
 | Module missing only in the app | Check declared dependencies and top-level app modules; try `--no-prune-stdlib` for dynamic standard-library imports. |
-| Image missing | Use a supported format directly beside `main.py`, exact filename/case, and explicit widget dimensions. |
-| Nested module or asset missing | Flat staging is a release limitation; move supported app files to the project root. |
+| Image missing | Use a supported format under `assets/` or beside `main.py`, its exact relative path, and explicit dimensions. |
+| Nested module or asset missing | Keep helper modules at the supported top level; put nested resources under the recursively packaged `assets/` directory. |
 | App icon did not change | Activate the configuration line, check the real PNG, restart the command, and inspect the correct installed app. |
 | AAB will not install with adb | Build an APK for direct installation or use the appropriate bundle testing workflow. |
 
@@ -652,7 +834,9 @@ Do not automatically uninstall an existing app to hide an update failure. Uninst
 | Text label is missing | Check the class-string-first constructor convention. |
 | State changes but the screen does not | Use store `update` and check that the displayed widget reads the updated field. |
 | Text input resets | Update the controlled value and keep a stable field identity. |
-| Screen does not scroll | Bound the scrolling region and inspect parent height/flex constraints. |
+| Screen does not scroll | Bound the region, use `flex-1`, and check intermediate parents for `min-h-0`. |
+| UI freezes during a request | Move blocking I/O into a module-level `Task` started from an event. |
+| Text needs truncation | Constrain its width and use `multiline=False` or `max_lines`, with `overflow="ellipsis"`. |
 | List rows overlap or clip | Verify fixed `item_height` against actual row content. |
 | Select will not open or close | If `open` is explicit, update it in the corresponding callbacks. |
 | Exit animation is invisible | Keep the widget present until its animation completion is handled. |

@@ -26,16 +26,15 @@
 Write declarative mobile screens in pure Python with reactive state management:
 
 ```python
-from zkite import Store, Column, Text, Button, SystemBars
+from zkite import store, Column, Text, Button, SystemBars
 
 # 1. Reactive state store
-class CounterStore(Store):
+@store
+class CounterStore:
     count: int = 0
 
-state = CounterStore()
-
 # 2. Declarative native UI
-def App():
+def view(state: CounterStore):
     return SystemBars(
         Column(
             "flex-1 justify-center items-center p-6 bg-slate-950 gap-4",
@@ -106,11 +105,11 @@ Install into an isolated Python 3.14 virtual environment:
 ```bash
 # Linux / macOS
 python3.14 -m venv .venv && source .venv/bin/activate
-pip install zkite==1.1.1
+pip install zkite==1.1.2
 
 # Windows (PowerShell)
 py -3.14 -m venv .venv; .\.venv\Scripts\Activate.ps1
-pip install zkite==1.1.1
+pip install zkite==1.1.2
 ```
 
 ### Using uv
@@ -120,7 +119,7 @@ start with a bare uv project and then add ZKite:
 
 ```bash
 uv init --bare
-uv add zkite==1.1.1
+uv add zkite==1.1.2
 uv run zkite new myapp .
 uv run zkite dev
 ```
@@ -167,13 +166,12 @@ ZKite builds distribution-ready production bundles with two commands:
 
 ```bash
 # 1. Generate cryptographic keystore without Java keytool or OpenSSL
-zkite keygen --out release_key --cn "My App Release Key"
+zkite keygen --cn "My App Release Key"
 
 # 2. Build multi-architecture Android App Bundle (.aab)
 zkite build aab \
   --abi arm64-v8a \
   --abi x86_64 \
-  --keystore release_key.pem \
   --out dist/
 ```
 
@@ -205,3 +203,5 @@ Comprehensive guides, API reference for all 19 widgets, troubleshooting matrices
 ## License
 
 ZKite is open-source software licensed under the [MIT License](LICENSE).
+
+See [responsive requests and swipeable tabs](docs/tasks-and-tabs.md) for the Task API, tabs, adaptive icons, and emoji support.

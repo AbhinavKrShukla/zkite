@@ -17,3 +17,5 @@ kurbo = "0.13"
 # a skew is a type error at the call site, not a silent divergence.
 peniko = "0.6"
 rustc-hash = "2"
+
+unicode-segmentation = "1.12"

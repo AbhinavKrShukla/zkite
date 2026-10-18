@@ -539,6 +539,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "log",
  "peniko",
+ "png",
  "skrifa 0.44.0",
  "smallvec",
  "vello_common",
@@ -2003,6 +2004,7 @@ dependencies = [
  "guillotiere",
  "log",
  "peniko",
+ "png",
  "smallvec",
  "thiserror 2.0.19",
 ]
@@ -2752,6 +2754,7 @@ dependencies = [
  "rustc-hash 2.1.3",
  "taffy",
  "twcore",
+ "unicode-segmentation",
 ]
 
 [[package]]

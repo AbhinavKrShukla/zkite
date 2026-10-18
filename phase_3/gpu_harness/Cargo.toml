@@ -40,7 +40,8 @@ rustc-hash = "2"
 unicode-segmentation = "1"
 vello_hybrid = { version = "0.1", default-features = false, features = ["wgpu", "wgpu_default", "text"] }
 vello_cpu = { version = "0.1", default-features = false, features = ["std", "text", "u8_pipeline"] }
-glifo = "0.2"
+# Android NotoColorEmoji uses embedded PNG glyphs (CBDT/CBLC).
+glifo = { version = "0.2", features = ["png"] }
 peniko = "0.6"
 kurbo = "0.13"
 wgpu = { version = "29", default-features = false, features = ["wgsl"] }

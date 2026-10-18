@@ -265,35 +265,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
-name = "zkite_anim"
-version = "0.0.1"
-
-[[package]]
-name = "zkite_pybridge"
-version = "0.0.1"
-dependencies = [
- "accesskit",
- "zkite_anim",
- "zkite_renderer",
- "pyo3-ffi",
- "rustc-hash",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "zkite_renderer"
-version = "0.0.1"
-dependencies = [
- "kurbo",
- "parley",
- "peniko",
- "rustc-hash",
- "taffy",
- "twcore",
-]
-
-[[package]]
 name = "kurbo"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -623,6 +594,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
+name = "unicode-segmentation"
+version = "1.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
+
+[[package]]
 name = "utf8_iter"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -723,6 +700,36 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "zkite_anim"
+version = "0.0.1"
+
+[[package]]
+name = "zkite_pybridge"
+version = "0.0.1"
+dependencies = [
+ "accesskit",
+ "pyo3-ffi",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "zkite_anim",
+ "zkite_renderer",
+]
+
+[[package]]
+name = "zkite_renderer"
+version = "0.0.1"
+dependencies = [
+ "kurbo",
+ "parley",
+ "peniko",
+ "rustc-hash",
+ "taffy",
+ "twcore",
+ "unicode-segmentation",
 ]
 
 [[package]]

@@ -6,6 +6,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use std::io::Write;
 use zkite_bundler::keystore::{generate, KeygenOptions};
 
 pub fn run(out: &Path, common_name: &str, password: &str) -> Result<()> {
@@ -19,10 +20,27 @@ pub fn run(out: &Path, common_name: &str, password: &str) -> Result<()> {
 
     let pem_path = with_extension(out, "pem");
     let p12_path = with_extension(out, "p12");
-    std::fs::write(&pem_path, &generated.combined_pem)
-        .with_context(|| format!("writing {}", pem_path.display()))?;
-    std::fs::write(&p12_path, &generated.pkcs12)
-        .with_context(|| format!("writing {}", p12_path.display()))?;
+    anyhow::ensure!(!pem_path.exists() && !p12_path.exists(),
+        "refusing to replace an existing signing key at {} or {}", pem_path.display(), p12_path.display());
+    if let Some(parent) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)?;
+        if parent.file_name().is_some_and(|name| name == "keystore") {
+            let ignore = parent.join(".gitignore");
+            if !ignore.exists() { std::fs::write(ignore, "*\n")?; }
+        }
+    }
+    let write_private = |path: &Path, bytes: &[u8]| -> Result<()> {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)] {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        options.open(path).with_context(|| format!("creating {}", path.display()))?.write_all(bytes)?;
+        Ok(())
+    };
+    write_private(&pem_path, generated.combined_pem.as_bytes())?;
+    write_private(&p12_path, &generated.pkcs12)?;
 
     println!("wrote {}", pem_path.display());
     println!("wrote {} (password: {password})", p12_path.display());

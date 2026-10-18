@@ -22,7 +22,13 @@ def main() -> None:
                         "https://github.com/google/pack.git"], check=True)
         subprocess.run(["git", "-C", str(destination), "fetch", "--depth", "1", "origin", REVISION], check=True)
         subprocess.run(["git", "-C", str(destination), "checkout", "--detach", "FETCH_HEAD"], check=True)
-    print(f"google/pack: {REVISION}")
+    for patch in sorted((REPO / "scripts/patches").glob("pack-*.patch")):
+        command = ["git", "-C", str(destination), "apply"]
+        if subprocess.run(command + ["--reverse", "--check", str(patch)], capture_output=True).returncode == 0:
+            continue
+        subprocess.run(command + ["--check", str(patch)], check=True)
+        subprocess.run(command + [str(patch)], check=True)
+    print(f"google/pack: {REVISION} (ZKite resource patches applied)")
 
 
 if __name__ == "__main__":

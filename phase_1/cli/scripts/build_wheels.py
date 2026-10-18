@@ -300,7 +300,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--payload", required=True, help="a directory from stage_payload.sh")
     ap.add_argument("--out", required=True, help="where to write the .whl files")
-    ap.add_argument("--version", default="1.1.1")
+    ap.add_argument("--version", default="1.1.2")
     # Local candidate names. Public release requires ownership of all three names.
     ap.add_argument("--payload-name", default="zkite-payload")
     ap.add_argument("--cli-name", default="zkite")

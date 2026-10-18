@@ -375,3 +375,72 @@ mod wake_tests {
         }
     }
 }
+
+/// Density-independent Android-style spline fling. Sampling absolute elapsed time
+/// makes the trajectory independent of refresh rate and dropped frames.
+#[derive(Clone, Copy, Debug)]
+pub struct SplineFling { pub duration: f32, pub distance: f32 }
+impl SplineFling {
+    pub fn new(velocity: f32) -> Self {
+        let velocity = if velocity.is_finite() { velocity.clamp(-12000.0, 12000.0) } else { 0.0 };
+        if velocity.abs() < 1.0 { return Self { duration: 0.0, distance: 0.0 }; }
+        let rate = 0.78f32.ln() / 0.9f32.ln();
+        let friction = 0.015 * 9.80665 * 39.37 * 160.0 * 0.84;
+        let deceleration = (0.35 * velocity.abs() / friction).ln();
+        Self {
+            duration: (deceleration / (rate - 1.0)).exp(),
+            distance: velocity.signum() * friction * (rate * deceleration / (rate - 1.0)).exp(),
+        }
+    }
+    pub fn position(self, elapsed: f32) -> f32 {
+        if self.duration <= 0.0 { return self.distance; }
+        let t = (elapsed / self.duration).clamp(0.0, 1.0);
+        let (mut lo, mut hi) = (0.0f32, 1.0f32);
+        for _ in 0..18 {
+            let u = (lo + hi) * 0.5;
+            let x = 3.0 * u * (1.0-u) * ((1.0-u)*0.175 + u*0.35) + u*u*u;
+            if x < t { lo = u; } else { hi = u; }
+        }
+        let u = (lo + hi) * 0.5;
+        self.distance * (3.0*u*(1.0-u)*((1.0-u)*0.5+u)+u*u*u)
+    }
+}
+
+/// Least-squares speed from timestamped finger samples (seconds, dp).
+/// Duplicate samples at release correctly turn a held finger into zero velocity.
+pub fn release_velocity(samples: &[(f32, f32)]) -> f32 {
+    let Some(&(last, _)) = samples.last() else { return 0.0 };
+    let samples: Vec<_> = samples.iter().filter(|(t, _)| last - t <= 0.1).collect();
+    if samples.len() < 2 { return 0.0; }
+    let n = samples.len() as f32;
+    let t = samples.iter().map(|p| p.0 - last).sum::<f32>() / n;
+    let x = samples.iter().map(|p| p.1).sum::<f32>() / n;
+    let variance = samples.iter().map(|p| (p.0-last-t).powi(2)).sum::<f32>();
+    if variance < 0.000032 { return 0.0; }
+    (-samples.iter().map(|p| (p.0-last-t)*(p.1-x)).sum::<f32>() / variance).clamp(-12000.0, 12000.0)
+}
+
+#[cfg(test)]
+mod spline_tests {
+    use super::*;
+    #[test]
+    fn spline_is_monotonic_and_finishes_at_every_refresh_rate() {
+        for hz in [60.0, 90.0, 120.0] {
+            let fling = SplineFling::new(3000.0);
+            let mut previous = 0.0;
+            for frame in 0..(fling.duration*hz).ceil() as usize + 2 {
+                let current = fling.position(frame as f32/hz);
+                assert!(current >= previous && current <= fling.distance + 0.01);
+                previous = current;
+            }
+            assert!((previous-fling.distance).abs() < 0.01);
+        }
+    }
+    #[test]
+    fn velocity_handles_pause_noise_and_direction() {
+        assert_eq!(release_velocity(&[(0.0, 100.0), (0.2, 0.0)]), 0.0);
+        assert!((release_velocity(&[(0.0, 100.0), (0.02, 80.0), (0.04, 60.0)])-1000.0).abs()<1.0);
+        assert!(SplineFling::new(6000.0).distance > SplineFling::new(3000.0).distance * 3.0);
+        assert_eq!(SplineFling::new(f32::NAN).distance, 0.0);
+    }
+}

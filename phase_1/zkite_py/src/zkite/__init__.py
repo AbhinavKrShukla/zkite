@@ -1,3 +1,5 @@
+from ._tabs import Tabs
+from ._tasks import Task
 from .app import App
 from ._store import store
 from ._anim import Anim, AnimEnd
@@ -26,6 +28,8 @@ from .widgets import (
 
 __all__ = [
     "App",
+    "Tabs",
+    "Task",
     "SystemBars",
     "store",
     "Anim",

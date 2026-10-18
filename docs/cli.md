@@ -108,8 +108,9 @@ phase_2/appshell/scripts/build.sh aarch64 x86_64   # cross-compile the .so per A
 phase_2/appshell/scripts/build_dex.sh               # classes.dex
 ```
 
-Without `--keystore`, signs with an ephemeral testing key (printed warning) — fine
-for local installs, never for anything you distribute; see `zkite keygen` below.
+Without `--keystore`, builds use `keystore/release.pem`, creating a persistent
+PEM/PKCS#12 pair if absent. The folder is ignored by Git. Copy it to another
+project to reuse the key. Existing `zkite-release.pem` is a legacy fallback.
 
 ---
 
@@ -144,8 +145,8 @@ password-protected PKCS#12 (for `keytool`/`jarsigner`/`bundletool`/Play Console
 upload-key workflows).
 
 ```bash
-zkite keygen --out zkite-release --cn myapp --password 'a-real-password'
-# writes zkite-release.pem and zkite-release.p12
+zkite keygen --cn myapp --password 'a-real-password'
+# writes keystore/release.pem and keystore/release.p12
 ```
 
 The PKCS#12 alias defaults to `--cn`'s value — needed if you drive `bundletool`/

@@ -6,6 +6,8 @@
 *.aab
 *.apks
 
+/keystore/
+
 # Private signing keys. Back up release keys securely outside Git.
 *.pem
 *.key

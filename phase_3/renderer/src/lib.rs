@@ -39,7 +39,18 @@ pub use icons::{IconCap, IconJoin, IconPaint, IconShape, IconSprite, IconStroke}
 /// Per-leaf data needed to measure and, later, paint a run of text. Containers carry
 /// no context at all (`taffy::TaffyTree::new_leaf`/`new_with_children`) — only text
 /// leaves do, which is exactly the set of nodes that need a `parley` shaping pass.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct TextOptions {
+    pub wrap: bool,
+    pub max_lines: Option<usize>,
+    pub ellipsis: bool,
+}
+impl Default for TextOptions {
+    fn default() -> Self { Self { wrap: true, max_lines: None, ellipsis: false } }
+}
+
 struct TextContext {
+    options: TextOptions,
     content: Arc<str>,
     style: Arc<ComputedStyle>,
 }
@@ -318,6 +329,7 @@ impl OpacityGroups {
 /// Registering fonts after construction would invalidate every entry here.
 #[derive(Clone, PartialEq)]
 struct ShapeKey {
+    options: TextOptions,
     content: Arc<str>,
     style: TextStyle,
     /// `break_all_lines`'s `max_advance`: the width text may wrap within, or `None`
@@ -344,6 +356,7 @@ impl std::hash::Hash for ShapeKey {
     /// scalars instead of walking ten style fields, most of which are identical
     /// across every node in a real app anyway.
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.options.hash(state);
         self.content.hash(state);
         self.style.size.to_bits().hash(state);
         self.style.weight.hash(state);
@@ -673,11 +686,48 @@ fn shape_for_layout(
     style: &TextStyle,
     wrap_width: Option<f32>,
     aligned: bool,
+    options: TextOptions,
 ) -> ShapedText {
-    let mut builder = layout_cx.ranged_builder(font_cx, content, 1.0, true);
-    push_text_style(&mut builder, style);
-    let mut plyt: parley::Layout<()> = builder.build(content);
-    plyt.break_all_lines(wrap_width);
+    use unicode_segmentation::UnicodeSegmentation;
+    let single_line = content.replace(['\n', '\r'], " ");
+    let content = if options.wrap { content } else { single_line.as_str() };
+    let mut make_layout = |text: &str| {
+        let mut builder = layout_cx.ranged_builder(font_cx, text, 1.0, true);
+        push_text_style(&mut builder, style);
+        for (start, cluster) in text.grapheme_indices(true) {
+            if !cluster.contains('\u{fe0e}') && cluster.chars().any(|c|
+                matches!(c as u32, 0x1f000..=0x1faff | 0x2600..=0x27bf | 0xfe0f | 0x20e3)) {
+                builder.push(StyleProperty::FontFamily(ParleyFontFamily::List(std::borrow::Cow::Owned(vec![
+                    FontFamilyName::Generic(GenericFamily::Emoji),
+                    FontFamilyName::Generic(generic_family(style.family)),
+                ]))), start..start + cluster.len());
+            }
+        }
+        builder.push_default(StyleProperty::OverflowWrap(parley::OverflowWrap::Anywhere));
+        let mut layout: parley::Layout<()> = builder.build(text);
+        layout.break_all_lines(if options.wrap { wrap_width } else { None });
+        layout
+    };
+    let mut plyt = make_layout(content);
+    let limit = options.max_lines.unwrap_or(usize::MAX);
+    if options.ellipsis && wrap_width.is_some_and(|w| w > 0.0) &&
+        (plyt.lines().count() > limit || plyt.width() > wrap_width.unwrap() + 0.1) {
+        // Shape candidates at grapheme boundaries: never split accents or ZWJ emoji.
+        let bounds: Vec<usize> = content.grapheme_indices(true).map(|(i, _)| i)
+            .chain(std::iter::once(content.len())).collect();
+        let (mut low, mut high) = (0, bounds.len());
+        let mut best = make_layout("…");
+        while low < high {
+            let mid = (low + high) / 2;
+            let candidate = format!("{}…", content[..bounds[mid]].trim_end());
+            let layout = make_layout(&candidate);
+            if layout.lines().count() <= limit && layout.width() <= wrap_width.unwrap() + 0.1 {
+                best = layout;
+                low = mid + 1;
+            } else { high = mid; }
+        }
+        plyt = best;
+    }
     // Align only when the box width is externally fixed. parley aligns against the
     // `max_advance` given to `break_all_lines`, which equals this node's own final
     // width *only* in that case — when the box is content-sized instead, `wrap_width`
@@ -690,7 +740,11 @@ fn shape_for_layout(
     }
 
     let mut runs: Vec<GlyphRun> = Vec::new();
-    for line in plyt.lines() {
+    let mut height = 0.0f32;
+    let mut width = 0.0f32;
+    for line in plyt.lines().take(limit) {
+        height = height.max(line.metrics().block_max_coord);
+        width = width.max(line.metrics().advance);
         for item in line.items() {
             let PositionedLayoutItem::GlyphRun(glyph_run) = item else { continue };
             let run = glyph_run.run();
@@ -702,7 +756,7 @@ fn shape_for_layout(
         }
     }
 
-    ShapedText { width: plyt.width(), height: plyt.height(), runs: Arc::new(runs) }
+    ShapedText { width, height, runs: Arc::new(runs) }
 }
 
 /// Parses one sprite's path data into `kurbo::BezPath`s, once — see `ResolvedIcon`.
@@ -736,6 +790,20 @@ fn font_family_property<'a>(family: twcore::FontFamily) -> StyleProperty<'a, ()>
     StyleProperty::FontFamily(ParleyFontFamily::Single(FontFamilyName::Generic(generic_family(
         family,
     ))))
+}
+
+/// Android owns the emoji font and updates its supported Unicode sequences.
+#[cfg(target_os = "android")]
+fn register_android_emoji(font_cx: &mut FontContext) {
+    let mut ids = Vec::new();
+    for path in ["/system/fonts/NotoColorEmoji.ttf", "/system/fonts/NotoColorEmojiFlags.ttf",
+                 "/system/fonts/NotoColorEmojiLegacy.ttf"] {
+        let Ok(bytes) = std::fs::read(path) else { continue };
+        let families = font_cx.collection.register_fonts(
+            parley::fontique::Blob::new(Arc::new(bytes)), None);
+        ids.extend(families.iter().map(|(id, _)| *id));
+    }
+    font_cx.collection.set_generic_families(GenericFamily::Emoji, ids.into_iter());
 }
 
 impl Renderer {
@@ -775,6 +843,9 @@ impl Renderer {
         ] {
             font_cx.collection.set_generic_families(generic, std::iter::once(id));
         }
+
+        #[cfg(target_os = "android")]
+        register_android_emoji(&mut font_cx);
 
         Ok(Renderer {
             tree: TaffyTree::new(),
@@ -919,8 +990,12 @@ impl Renderer {
     /// (the common case for a bare string child) — inheritance via
     /// `resolve_inherited` fills in typography from the nearest ancestor either way.
     pub fn text(&mut self, classes: &str, content: impl Into<Arc<str>>) -> NodeId {
+        self.text_with_options(classes, content, TextOptions::default())
+    }
+
+    pub fn text_with_options(&mut self, classes: &str, content: impl Into<Arc<str>>, options: TextOptions) -> NodeId {
         let style = self.resolve_inherited(classes);
-        let ctx = TextContext { content: content.into(), style: style.clone() };
+        let ctx = TextContext { content: content.into(), style: style.clone(), options };
         self.tree.new_leaf_with_context(style.layout.clone(), ctx).unwrap()
     }
 
@@ -1076,6 +1151,7 @@ impl Renderer {
                         AvailableSpace::MaxContent | AvailableSpace::MinContent => None,
                     });
                     let key = ShapeKey {
+                        options: ctx.options,
                         content: ctx.content.clone(),
                         style: ctx.style.text.clone(),
                         wrap_width,
@@ -1102,6 +1178,7 @@ impl Renderer {
                             &key.style,
                             key.wrap_width,
                             key.aligned,
+                            key.options,
                         );
                         cache_cur.insert(key, shaped_text.clone());
                         shaped_text
@@ -1709,6 +1786,18 @@ mod tests {
     /// native tree to `absolute inset-0`) and `Icon`'s original `w-[1em]`/`h-[1em]`
     /// (twcore's arbitrary-length parser has no `em` unit — fixed with a fixed-px
     /// fallback). Both fixes live in `Widget._tree_classes()` overrides, not here.
+    #[test]
+    fn ellipsis_and_line_limits_are_part_of_shaping() {
+        let mut renderer = test_renderer();
+        let node = renderer.text_with_options("text-base w-[100px]", "one two three four five six seven eight", TextOptions {
+            wrap: true, max_lines: Some(2), ellipsis: true,
+        });
+        renderer.layout(node, 100.0, 400.0);
+        let nodes = renderer.positioned(node, &FxHashMap::default());
+        assert!(nodes[0].rect.3 <= 49.0);
+        assert!(nodes[0].rect.2 <= 100.0);
+    }
+
     #[test]
     fn zkite_py_native_classes_all_resolve() {
         let mut r = test_renderer();

@@ -32,7 +32,7 @@ enum Command {
         /// Use `.` to scaffold in the current directory.
         destination: Option<String>,
     },
-    /// Hot-reloading dev loop against a connected device (see ../PLAN.md M5).
+    /// Hot-reloading dev loop against a connected device.
     Dev {
         /// Use a custom Dev Shell APK. Normally a project preview is prepared
         /// from the bundled runtime with your app's icon and label.
@@ -71,7 +71,7 @@ enum Command {
         #[arg(long)]
         logs: bool,
     },
-    /// Build a signed, standalone APK or AAB (see ../../phase_2/PLAN.md).
+    /// Build a signed, standalone APK or AAB.
     Build {
         /// "apk" or "aab".
         format: String,
@@ -96,11 +96,10 @@ enum Command {
         #[arg(long)]
         backend: Option<String>,
     },
-    /// Generate a signing keystore: a combined PEM and a PKCS#12 (see
-    /// ../../phase_2/PLAN.md §1's keystore finding).
+    /// Generate a signing keystore: a combined PEM and a PKCS#12.
     Keygen {
-        /// Where to write "<name>.pem" and "<name>.p12". Default: ./zkite-release.
-        #[arg(long, default_value = "zkite-release")]
+        /// Where to write "<name>.pem" and "<name>.p12". Default: keystore/release.
+        #[arg(long, default_value = "keystore/release")]
         out: PathBuf,
         #[arg(long, default_value = "zkite")]
         cn: String,
@@ -116,7 +115,7 @@ enum Command {
     /// Print the payload-relative paths `zkite build` reads, for a release pipeline to
     /// stage. Plumbing, not a user command — `phase_1/cli/scripts/stage_payload.sh`
     /// is its one consumer, and it exists so that script has no list of its own to
-    /// drift from this binary's (phase_3/PLAN.md §29.7).
+    /// drift from this binary's.
     #[command(hide = true)]
     PayloadManifest {
         #[arg(long, default_value = "native")]
