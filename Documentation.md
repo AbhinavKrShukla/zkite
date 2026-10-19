@@ -1,4 +1,4 @@
-# ZKite documentation
+# ZKite 1.2.0 documentation
 
 ZKite builds Android applications from Python. You describe a widget tree, update
 Python state, and ZKite lays out and draws the interface using its Rust native
@@ -12,11 +12,15 @@ historical proposals and experiments; they are not installation instructions.
 
 The complete distribution is `zkite`; it installs matching `zkite-framework` and
 `zkite-payload` dependencies. The command and Python import are both `zkite`.
-The current release is `1.1.2`. Install it with:
+Version **1.2.0** is the current release. Install it from PyPI into a CPython 3.14
+environment:
 
 ```bash
-python -m pip install zkite==1.1.2
+python -m pip install zkite==1.2.0
 ```
+
+Pip installs matching CLI, framework and payload distributions. Keep all three at
+version 1.2.0. See [release status](docs/status.md) for tested platforms and scope.
 
 For the extended learner knowledge base, see
 [Documentation-detailed.md](Documentation-detailed.md). It covers public concepts,
@@ -35,11 +39,12 @@ Those tools are used once to produce framework release artifacts.
 
 ### Windows PowerShell
 
-Install the Windows x86_64 distribution from PyPI:
+On Windows x86_64, use this PowerShell workflow. The release passed installation
+and APK-build checks under Windows Python in Wine:
 
 ```powershell
 py -3.14 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install zkite==1.1.2
+.\.venv\Scripts\python.exe -m pip install zkite==1.2.0
 adb devices
 .\.venv\Scripts\zkite.exe new hello
 cd hello
@@ -55,20 +60,20 @@ $env:ZKITE_PYTHON = 'C:\Path With Spaces\Python314\python.exe'
 
 ### Linux
 
-Install the Linux x86_64 distribution from PyPI:
+On Linux x86_64, install the manylinux release from PyPI:
 
 ```bash
 python3.14 -m venv .venv
 . .venv/bin/activate
-python -m pip install zkite==1.1.2
+python -m pip install zkite==1.2.0
 adb devices
 zkite new hello
 cd hello
 zkite run
 ```
 
-The Linux x86_64 wheel supports glibc 2.28 or newer. Windows x86_64 and Linux
-x86_64 are the supported host targets for this release; a macOS wheel is not included.
+The release set includes a `manylinux_2_28_x86_64` CLI wheel, a Windows x86_64 CLI
+wheel, and shared framework/payload wheels. No macOS wheel is included.
 
 ## 2. Understand the development commands
 
@@ -270,8 +275,8 @@ Image("h-32 w-48 rounded-xl object-cover", src="assets/photo.jpg", alt="A landsc
 ```
 
 Import `Image` from `zkite`. Set dimensions explicitly. Local PNG/JPEG and supported
-image data URIs render natively. Network image loading and intrinsic image sizing
-are not implemented. Images exceeding 16,777,216 pixels are rejected before decoding
+image data URIs render natively. HTTPS PNG/JPEG loading is supported (see section 10). Intrinsic image sizing
+is not implemented. Images exceeding 16,777,216 pixels are rejected before decoding
 allocates their output buffer; resize large assets before shipping.
 
 ### Swipeable tabs
@@ -362,7 +367,8 @@ def view():
 ```
 
 Replace the example endpoint with your service. Include `"INTERNET"` in
-`app.json` → `android.permissions` (new projects already do).
+`app.json` → `android.permissions`. In 1.2.0, run/build infer this for
+recognized network calls; use an explicit entry for dynamic or third-party use.
 
 `Task.start(fn, *args, **kwargs)` returns immediately. Four workers run concurrently,
 with a bounded admission limit of 32 running/queued jobs. Excess submissions raise
@@ -509,11 +515,11 @@ version = "0.1.0"
 dependencies = [
     "starlette==1.8.0",
     "uvicorn==0.54.0",
-    "zkite>=1.1.1",
+    "zkite>=1.2.0",
 ]
 ```
 
-The `zkite` constraint is a minimum; install 1.1.2 to use the APIs in this guide.
+The `zkite` constraint is a minimum; install 1.2.0 to use the APIs in this guide.
 Keep Uvicorn on its pure-Python networking stack:
 
 ```python
@@ -585,12 +591,103 @@ same option on `run`) when your app relies on those imports. Bytecode compilatio
 still uses CPython 3.14.
 
 An APK update replaces managed app source, stdlib, framework, and font directories.
-Do not store persistent user data alongside extracted app source. Store it in a
-separate application-private directory; in the current Android layout the parent
-of `Path(__file__).resolve().parent` for a top-level `main.py` is the app's private
-files directory. Keep your database in a separate child such as `user-data/`.
+Do not store persistent user data alongside extracted app source. Use
+`files.data_dir()` for app-private durable files and `files.cache_dir()` for
+replaceable temporary data. Copy important captures and recordings out of cache.
 
-## 11. Troubleshooting
+## 11. Device services and automatic permissions
+
+Device services use ordinary Python imports on the native Android backend. Use
+`async def` event handlers and `await` operations that open system UI or perform I/O.
+For example, this handler selects a document and saves an app-private copy:
+
+```python
+from zkite import files
+from zkite.errors import DeviceError
+
+async def attach_document():
+    try:
+        document = await files.pick(types=["application/pdf"])
+        if document is None:  # user cancelled
+            return
+        await document.copy_to(files.data_dir() / "attachment.pdf")
+    except (DeviceError, TimeoutError) as exc:
+        print(f"Could not attach document: {exc}")  # show recovery in your app UI
+
+# Pass attach_document as a Button's on_tap callback.
+```
+
+| Need | Python API |
+|---|---|
+| Pick, export, upload | `files.pick`, `pick_many`, `pick_photo`, `save`; `network.upload` |
+| Photo, video, torch | `camera.capture`, `record_video`, `torch` |
+| Microphone, playback, speech | `audio.record`, `play`, `speak` |
+| Touch feedback, vibration | `haptics.perform`, `vibrate`, `stop` |
+| Motion and environment | `sensors.accelerometer.watch`, gyroscope, light, proximity, shake and more |
+| Sharing and clipboard | `share.send`, `clipboard.read`, `clipboard.write` |
+| Device and location | `device.info`, `battery`, `network`, `open_url`, `keep_awake`; `location.current` |
+| Notifications and credentials | `notifications.show`, `cancel`; `secrets.set`, `get`, `delete`; `biometrics.authenticate` |
+
+Camera capture opens the system camera. Playback uses Android's selected output
+route. Shake detection uses the accelerometer; it is not a dedicated vibration
+measurement sensor. Device support and user settings still determine availability.
+
+### Permissions before run/build
+
+`zkite run`, `zkite build apk`, and `zkite build aab` scan project Python without
+executing it and merge inferred permissions into `app.json` before packaging.
+Preview preparation also scans; restart `zkite dev` when a code change needs new
+manifest permissions. For `await audio.record()` and `await haptics.vibrate()`, the
+result includes:
+
+```json
+{
+  "android": {
+    "permissions": ["RECORD_AUDIO", "VIBRATE"],
+    "inferred_permissions": ["RECORD_AUDIO", "VIBRATE"]
+  }
+}
+```
+
+Existing settings and manual permissions are preserved. ZKite tracks its additions
+in `inferred_permissions` and removes obsolete automatically added entries on a
+later scan. To retain an entry manually, leave it in `permissions` and remove it
+from `inferred_permissions`. Commit the updated configuration. Reasons appear in
+the command output and `.zkite/permissions.json`.
+
+Aliases, local re-exports and common network clients are recognized. Arbitrary
+runtime-generated code and third-party dependencies cannot always be inferred;
+use explicit `android.permissions` or `android.capabilities` for those cases.
+For example, `"capabilities": ["audio.record"]` declares microphone use. File/photo
+pickers do not require broad storage access. External camera capture alone does
+not add CAMERA; torch does. Supported services request runtime consent in context;
+handle `PermissionDenied` and `PermissionNotDeclared` as recoverable errors.
+
+After signing, ZKite decodes the APK's `AndroidManifest.xml` or the AAB's
+`base/manifest/AndroidManifest.xml`, verifies permission placement and encoding,
+rejects duplicates, and checks the exact resolved permission set. This verifies
+packaging; Play privacy declarations and approval remain app-specific.
+
+### Lifecycle and limits
+
+Recordings stop, playback pauses and torch turns off in background. Sensor
+subscriptions pause/resume with the app; close them when leaving their screen.
+Reload invalidates pending device work and resource handles. Catch expected errors
+in handlers; picker cancellation returns `None` (or `[]` for `pick_many`). A provider
+URI is not a filesystem path: use `FileRef.copy_to` or `local_copy` when needed.
+
+The experimental WebView backend has no device bridge. Embedded camera preview,
+background recording/tracking, scheduled notifications, Bluetooth/NFC/USB and QR
+scanning are not included. Biometrics authenticates through system UI; it does not
+cryptographically gate the separate secrets store.
+
+See [the detailed device guide](Documentation-detailed.md#device-services-and-automatic-permissions)
+for examples, errors, limits, and resource cleanup, or run
+[Device Lab](examples/device_lab/main.py) on a phone.
+Platform and packaging sources, each with a short description, are collected in
+[the detailed documentation references](Documentation-detailed.md#references).
+
+## 12. Troubleshooting
 
 | Symptom | Check |
 |---|---|
@@ -609,7 +706,7 @@ Development errors appear in an on-screen traceback overlay and logs. Standalone
 as NaN/Infinity now produces a recoverable error instead of a blank screen. Fix the
 source and save; do not remove the development signing key to solve a render error.
 
-## 12. Framework contributors and release builders
+## 13. Framework contributors and release builders
 
 App authors install wheels; contributors build the precompiled runtime. On Linux,
 the release toolchain uses Rust, Python 3.14, JDK 17, `protoc`, Android NDK
@@ -625,7 +722,7 @@ cargo build --release --locked --manifest-path phase_1/cli/Cargo.toml
 ABI=arm64-v8a ZKITE_DEVSHELL=1 phase_3/gpu_harness/scripts/build_apk.sh
 ABI=x86_64 ZKITE_DEVSHELL=1 phase_3/gpu_harness/scripts/build_apk.sh
 python phase_1/cli/scripts/stage_payload.py release/payload --abi arm64-v8a --abi x86_64
-python phase_1/cli/scripts/build_wheels.py --payload release/payload --out release/wheels --version 1.1.2 --verify
+python phase_1/cli/scripts/build_wheels.py --payload release/payload --out release/wheels --version 1.2.0 --verify
 ```
 
 Put JDK 17's `bin` on `PATH` and set `JAVA_HOME` for those release steps. Staging
@@ -644,7 +741,7 @@ artifacts without publishing packages. See [release status](docs/status.md)
 for the measured release status and deferred features, and
 [PUBLISHING.md](PUBLISHING.md) for the full TestPyPI and PyPI publishing procedure.
 
-## 13. Migrate projects from the earlier Kite candidate
+## 14. Migrate projects from the earlier Kite candidate
 
 Version `0.1.0.dev2` completes the rename to ZKite. Upgrade all three distributions
 together; do not mix the earlier Android payload with the renamed CLI or API.

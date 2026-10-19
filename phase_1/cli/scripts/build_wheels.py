@@ -41,7 +41,8 @@ def description(args) -> str:
         "Description-Content-Type: text/markdown\n\n"
         "# ZKite\n\n"
         "Build native Android applications in Python with reactive widgets, state, "
-        "hot reload, and standalone APK/AAB packaging.\n\n"
+        "hot reload, standalone APK/AAB packaging, device services, and automatic "
+        "Android permission inference.\n\n"
         f"Install the complete framework with `python -m pip install {args.cli_name}`. "
         "Use CPython 3.14 and Android platform-tools (adb). The distribution supplies "
         "prebuilt Android runtimes; application authors do not need Rust or the Android NDK.\n\n"
@@ -300,7 +301,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--payload", required=True, help="a directory from stage_payload.sh")
     ap.add_argument("--out", required=True, help="where to write the .whl files")
-    ap.add_argument("--version", default="1.1.2")
+    ap.add_argument("--version", default="1.2.0")
     # Local candidate names. Public release requires ownership of all three names.
     ap.add_argument("--payload-name", default="zkite-payload")
     ap.add_argument("--cli-name", default="zkite")

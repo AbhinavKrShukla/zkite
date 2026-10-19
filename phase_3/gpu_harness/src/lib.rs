@@ -10,6 +10,7 @@ use std::sync::mpsc::Sender;
 use std::sync::Mutex;
 
 mod a11y;
+mod device_services;
 mod images;
 mod reload;
 mod render_thread;
@@ -249,6 +250,7 @@ fn load_font_set(dir: &str) -> Result<zkite_renderer::FontSet, String> {
                 vm = std::ptr::null_mut();
             }
         }
+        device_services::install(env);
         {
             let mut ti_guard = TEXT_INPUT.lock().unwrap();
             if ti_guard.is_none() {

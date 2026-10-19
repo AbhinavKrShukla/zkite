@@ -37,7 +37,7 @@ echo "=== 1/5  compile the dex shim (release-pipeline side: JDK + d8) ==="
 rm -rf "$BUILD/classes"
 mkdir -p "$BUILD/classes"
 javac -source 8 -target 8 -nowarn \
-      -bootclasspath "$ANDROID_JAR" \
+      -bootclasspath "$BUILD_TOOLS/core-lambda-stubs.jar:$ANDROID_JAR" \
       -classpath "$ANDROID_JAR" \
       -d "$BUILD/classes" \
       "$DEVSHELL"/java/dev/zkite/devshell/*.java \

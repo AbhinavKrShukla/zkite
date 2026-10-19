@@ -10,6 +10,14 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
+import threading
+
+_UPDATE_LOCK = threading.RLock()
+
+def set_update_lock(lock):
+    global _UPDATE_LOCK
+    _UPDATE_LOCK = lock
+
 from typing import Callable, TypeVar
 
 T = TypeVar("T")
@@ -29,10 +37,14 @@ def store(cls: type[T]) -> type[T]:
     cls.__zkite_store_qualname__ = qualname  # type: ignore[attr-defined]
 
     def update(self, **kwargs: object) -> None:
-        for k, v in kwargs.items():
-            setattr(self, k, v)
-        if _RENDER_CALLBACK is not None:
-            _RENDER_CALLBACK()
+        from . import _async
+        with _UPDATE_LOCK:
+            if not _async.current():
+                return
+            for k, v in kwargs.items():
+                setattr(self, k, v)
+            if _RENDER_CALLBACK is not None:
+                _RENDER_CALLBACK()
 
     cls.update = update  # type: ignore[attr-defined]
     return cls

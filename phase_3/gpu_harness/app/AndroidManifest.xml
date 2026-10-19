@@ -40,6 +40,9 @@
         android:extractNativeLibs="true"
         android:hasCode="true">
 
+        <provider android:name="dev.zkite.runtime.SharedFiles"
+            android:authorities="dev.zkite.gpuharness.zkite.files"
+            android:exported="false" android:grantUriPermissions="true" />
         <activity
             android:name="dev.zkite.gpuharness.ZKiteActivity"
             android:label="@string/app_name"

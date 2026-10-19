@@ -1,3 +1,5 @@
+__version__ = "1.2.0"
+
 from ._tabs import Tabs
 from ._tasks import Task
 from .app import App

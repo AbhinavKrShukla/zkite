@@ -194,6 +194,8 @@ pub fn run(args: BuildArgs) -> Result<BuildOutput> {
     println!("  payload: {}", payload.describe());
     let phase0 = repo_root.join("phase_0");
 
+    load_project_config(&args.project_dir)?;
+    crate::permissions::sync(&args.project_dir)?;
     let mut config = load_project_config(&args.project_dir)?;
     manifest_gen::validate_package(&config.identity.package).map_err(|e| anyhow::anyhow!(e))?;
     // Both zkite-owned namespaces are legal Android package names and install fine on
@@ -343,6 +345,7 @@ pub fn run(args: BuildArgs) -> Result<BuildOutput> {
                     &package, extras, &keys,
                 )
                 .map_err(|e| anyhow::anyhow!("pack+sign failed: {e}"))?;
+                crate::permissions::verify_archive(&bytes, &config.identity.permissions, false)?;
                 let out_path = out_dir.join(format!("{}-{}.apk", config.name, abi));
                 std::fs::write(&out_path, &bytes)?;
                 println!(
@@ -404,6 +407,7 @@ pub fn run(args: BuildArgs) -> Result<BuildOutput> {
 
             let bytes = zkite_bundler::aab::compile_and_sign_aab_with_extras(&package, extras, &keys)
                 .map_err(|e| anyhow::anyhow!("pack+sign failed: {e}"))?;
+            crate::permissions::verify_archive(&bytes, &config.identity.permissions, true)?;
             let out_path = out_dir.join(format!("{}.aab", config.name));
             std::fs::write(&out_path, &bytes)?;
             println!("  wrote {} ({:.1} MB)", out_path.display(), bytes.len() as f64 / 1e6);
@@ -539,7 +543,7 @@ fn load_project_config(project_dir: &Path) -> Result<ProjectConfig> {
     if let Some(android) = android {
         let table = android.as_table().context("android must be an object")?;
         for key in table.keys() {
-            anyhow::ensure!(["package", "label", "version_code", "min_sdk", "target_sdk", "icon", "permissions"].contains(&key.as_str()), "unknown android setting: {key}");
+            anyhow::ensure!(["package", "label", "version_code", "min_sdk", "target_sdk", "icon", "permissions", "capabilities", "inferred_permissions"].contains(&key.as_str()), "unknown android setting: {key}");
         }
         for key in ["package", "label"] {
             if let Some(value) = table.get(key) {
@@ -586,7 +590,7 @@ fn load_project_config(project_dir: &Path) -> Result<ProjectConfig> {
     // wanted the network failed on the device inside `socket` with nothing naming the
     // manifest. Validated here rather than at pack time: a bad name is the developer's
     // own typo and belongs in a build error that quotes it, not in an AXML failure.
-    let permissions = match android.and_then(|a| a.get("permissions")) {
+    let mut permissions = match android.and_then(|a| a.get("permissions")) {
         None => Vec::new(),
         Some(v) => {
             let arr = v.as_array().context(
@@ -609,6 +613,26 @@ fn load_project_config(project_dir: &Path) -> Result<ProjectConfig> {
         }
     };
 
+    if let Some(value) = android.and_then(|a| a.get("capabilities")) {
+        for capability in value.as_array().context("android.capabilities must be an array")? {
+            let name = capability.as_str().context("capabilities must be strings")?;
+            let required: &[&str] = match name {
+                "files" | "camera.capture" | "audio.play" | "sensors" | "share" | "clipboard" | "device" | "secrets" => &[],
+                "biometrics" => &["USE_BIOMETRIC"],
+                "camera.torch" => &["CAMERA"],
+                "audio.record" => &["RECORD_AUDIO"],
+                "haptics" => &["VIBRATE"],
+                "network" => &["INTERNET", "ACCESS_NETWORK_STATE"],
+                "location" => &["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"],
+                "notifications" => &["POST_NOTIFICATIONS"],
+                _ => anyhow::bail!("unknown or unsupported android capability: {name}"),
+            };
+            for permission in required {
+                let full = manifest_gen::normalize_permission(permission);
+                if !permissions.contains(&full) { permissions.push(full); }
+            }
+        }
+    }
     Ok(ProjectConfig {
         name,
         identity: AppIdentity {
@@ -640,6 +664,8 @@ fn android_integer(table: Option<&toml::Value>, key: &str, default: u32) -> Resu
 
 /// Reuse the same validated identity and icon for a project-specific reload shell.
 pub(crate) fn preview_identity(project: &Path, backend: Backend) -> Result<(AppIdentity, Vec<u8>)> {
+    load_project_config(project)?;
+    crate::permissions::sync(project)?;
     use sha2::{Digest, Sha256};
     let config = load_project_config(project)?;
     manifest_gen::validate_package(&config.identity.package).map_err(anyhow::Error::msg)?;
@@ -1337,6 +1363,18 @@ mod tests {
         v.extend_from_slice(&[8, 2, 0, 0, 0]);
         v.extend_from_slice(&[0, 0, 0, 0]); // crc
         v
+    }
+
+    #[test]
+    fn device_capabilities_expand_permissions_and_reject_unknown_names() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("app.json"), r#"{"name":"device-test","android":{"capabilities":["audio.record","haptics","location","biometrics"]}}"#).unwrap();
+        let config = load_project_config(dir.path()).unwrap();
+        for permission in ["RECORD_AUDIO", "VIBRATE", "ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION", "USE_BIOMETRIC"] {
+            assert!(config.identity.permissions.contains(&format!("android.permission.{permission}")));
+        }
+        std::fs::write(dir.path().join("app.json"), r#"{"name":"device-test","android":{"capabilities":["camera.magic"]}}"#).unwrap();
+        assert!(load_project_config(dir.path()).is_err());
     }
 
     #[test]

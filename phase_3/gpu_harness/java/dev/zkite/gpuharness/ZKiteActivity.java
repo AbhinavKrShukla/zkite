@@ -69,11 +69,13 @@ public class ZKiteActivity extends Activity {
     private android.widget.TextView loadingMessage;
     private android.widget.ProgressBar loadingProgress;
     private boolean nativeBooted;
+    private dev.zkite.runtime.DeviceServices deviceServices;
 
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        deviceServices = new dev.zkite.runtime.DeviceServices(this);
 
         // No title bar: this app draws every pixel itself (that's the entire point of
         // phase 3's renderer), so the platform's default ActionBar is dead screen
@@ -366,6 +368,7 @@ public class ZKiteActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (deviceServices != null) deviceServices.resume();
         if (surfaceView != null && surfaceView.getHolder().getSurface() != null && surfaceView.getHolder().getSurface().isValid()) {
             int w = surfaceView.getWidth();
             int h = surfaceView.getHeight();
@@ -376,7 +379,26 @@ public class ZKiteActivity extends Activity {
     }
 
     @Override
+    protected void onPause() {
+        if (deviceServices != null) deviceServices.pause();
+        super.onPause();
+    }
+
+    @Override
+    protected void onActivityResult(int request, int result, android.content.Intent data) {
+        super.onActivityResult(request, result, data);
+        if (deviceServices != null) deviceServices.onActivityResult(request, result, data);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(request, permissions, results);
+        if (deviceServices != null) deviceServices.onPermissions(request, permissions, results);
+    }
+
+    @Override
     protected void onDestroy() {
+        if (deviceServices != null) deviceServices.destroy();
         // The user is actually leaving — stop the render thread and release its GPU
         // resources rather than letting them outlive the Activity for however long the
         // process happens to stick around. Distinct from surfaceDestroyed (fires on

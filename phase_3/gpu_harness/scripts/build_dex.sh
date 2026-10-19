@@ -46,7 +46,7 @@ ANDROIDX_CORE_JAR="$GPU_HARNESS/vendor/androidx-core/classes.jar"
 rm -rf "$BUILD/classes"
 mkdir -p "$BUILD/classes" "$ARTIFACTS"
 javac -source 8 -target 8 -nowarn \
-      -bootclasspath "$ANDROID_JAR" \
+      -bootclasspath "$BUILD_TOOLS/core-lambda-stubs.jar:$ANDROID_JAR" \
       -classpath "$ANDROID_JAR:$GAMETEXTINPUT_JAR:$ANDROIDX_CORE_JAR" \
       -d "$BUILD/classes" \
       "$GPU_HARNESS"/java/dev/zkite/gpuharness/*.java \

@@ -42,7 +42,7 @@ fn build_signed_test_apk(package: &str) -> Vec<u8> {
         min_sdk: 26,
         target_sdk: 34,
             activity: APPSHELL_ACTIVITY.into(),
-            permissions: Vec::new(),
+            permissions: vec!["android.permission.CAMERA".into(), "android.permission.RECORD_AUDIO".into(), "android.permission.VIBRATE".into()],
     };
     let manifest = android_manifest(&id);
     let resources = vec![
@@ -137,7 +137,7 @@ fn duplicate_extra_paths_panic_instead_of_silently_clobbering() {
         min_sdk: 26,
         target_sdk: 34,
             activity: APPSHELL_ACTIVITY.into(),
-            permissions: Vec::new(),
+            permissions: vec!["android.permission.CAMERA".into(), "android.permission.RECORD_AUDIO".into(), "android.permission.VIBRATE".into()],
     };
     let pkg = Package {
         android_manifest: android_manifest(&id),
@@ -168,4 +168,15 @@ fn duplicate_extra_paths_panic_instead_of_silently_clobbering() {
         compile_and_sign_apk_with_extras(&pkg, extras, &combined_pem_keys)
     }));
     assert!(result.is_err(), "expected a panic on duplicate zip entry paths");
+}
+
+#[test]
+fn compiled_permissions_are_root_children_with_android_name() {
+    let bytes = build_signed_test_apk("dev.zkite.permissiontest");
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let mut manifest = Vec::new();
+    use std::io::Read;
+    zip.by_name("AndroidManifest.xml").unwrap().read_to_end(&mut manifest).unwrap();
+    let found = zkite_bundler::manifest_verify::apk_permissions(&manifest).unwrap();
+    assert_eq!(found.into_iter().collect::<Vec<_>>(), vec!["android.permission.CAMERA", "android.permission.RECORD_AUDIO", "android.permission.VIBRATE"]);
 }

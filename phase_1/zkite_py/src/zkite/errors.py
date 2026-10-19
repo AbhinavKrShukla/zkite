@@ -110,3 +110,39 @@ def log_recovered() -> None:
 
 
 __all__ = ["MARKER", "format_error_overlay", "format_error_tree", "log_error", "log_recovered"]
+
+
+class DeviceError(Exception):
+    """An Android device operation failed; safe to handle in application UI."""
+
+
+class DeviceUnavailable(DeviceError):
+    pass
+
+
+class PermissionDenied(DeviceError):
+    pass
+
+
+class PermissionNotDeclared(DeviceError):
+    pass
+
+
+class UnsupportedFeature(DeviceError):
+    pass
+
+
+class ResourceBusy(DeviceError):
+    pass
+
+
+class OperationInterrupted(DeviceError):
+    pass
+
+
+class DeviceIOError(DeviceError):
+    pass
+
+
+class RuntimeMismatch(DeviceError):
+    pass

@@ -1,0 +1,49 @@
+{
+  "android": {
+    "capabilities": [
+      "files",
+      "camera.capture",
+      "camera.torch",
+      "audio.record",
+      "audio.play",
+      "haptics",
+      "sensors",
+      "share",
+      "clipboard",
+      "device",
+      "network",
+      "location",
+      "notifications",
+      "secrets",
+      "biometrics"
+    ],
+    "inferred_permissions": [
+      "ACCESS_COARSE_LOCATION",
+      "ACCESS_FINE_LOCATION",
+      "ACCESS_NETWORK_STATE",
+      "CAMERA",
+      "INTERNET",
+      "POST_NOTIFICATIONS",
+      "RECORD_AUDIO",
+      "USE_BIOMETRIC",
+      "VIBRATE"
+    ],
+    "label": "ZKite Device Lab",
+    "package": "dev.zkite.devicelab",
+    "permissions": [
+      "ACCESS_COARSE_LOCATION",
+      "ACCESS_FINE_LOCATION",
+      "ACCESS_NETWORK_STATE",
+      "CAMERA",
+      "INTERNET",
+      "POST_NOTIFICATIONS",
+      "RECORD_AUDIO",
+      "USE_BIOMETRIC",
+      "VIBRATE"
+    ],
+    "version_code": 120
+  },
+  "backend": "native",
+  "name": "device-lab",
+  "version": "1.2.0"
+}

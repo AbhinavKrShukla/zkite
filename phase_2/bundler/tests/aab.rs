@@ -35,7 +35,7 @@ fn build_test_aab(package: &str) -> Vec<u8> {
         min_sdk: 26,
         target_sdk: 34,
             activity: APPSHELL_ACTIVITY.into(),
-            permissions: Vec::new(),
+            permissions: vec!["android.permission.CAMERA".into(), "android.permission.RECORD_AUDIO".into(), "android.permission.VIBRATE".into()],
     };
     let manifest = android_manifest(&id);
     let resources = vec![
@@ -112,4 +112,15 @@ fn extras_land_under_the_base_module() {
     // Bundle-level (not module-relative) required entries, per `construct_aab`.
     assert!(zip.by_name("BundleConfig.pb").is_ok());
     assert!(zip.by_name("base/manifest/AndroidManifest.xml").is_ok());
+}
+
+#[test]
+fn compiled_permissions_are_root_children_with_android_name() {
+    let bytes = build_test_aab("dev.zkite.permissiontest");
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+    let mut manifest = Vec::new();
+    use std::io::Read;
+    zip.by_name("base/manifest/AndroidManifest.xml").unwrap().read_to_end(&mut manifest).unwrap();
+    let found = zkite_bundler::manifest_verify::aab_permissions(&manifest).unwrap();
+    assert_eq!(found.into_iter().collect::<Vec<_>>(), vec!["android.permission.CAMERA", "android.permission.RECORD_AUDIO", "android.permission.VIBRATE"]);
 }

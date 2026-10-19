@@ -69,6 +69,39 @@ pub fn set_frame_sink(sink: Option<FrameSink>) {
     *FRAME_SINK.lock().unwrap() = sink;
 }
 
+type DeviceExchange = Box<dyn Fn(&str) -> String + Send + Sync>;
+static DEVICE_EXCHANGE: Mutex<Option<DeviceExchange>> = Mutex::new(None);
+
+pub fn set_device_exchange(exchange: DeviceExchange) {
+    *DEVICE_EXCHANGE.lock().unwrap() = Some(exchange);
+}
+
+unsafe extern "C" fn device_exchange(_self: *mut py::PyObject, arg: *mut py::PyObject) -> *mut py::PyObject {
+    let mut len: py::Py_ssize_t = 0;
+    let value = py::PyUnicode_AsUTF8AndSize(arg, &mut len);
+    if value.is_null() { return std::ptr::null_mut(); }
+    let input = String::from_utf8_lossy(std::slice::from_raw_parts(value as *const u8, len as usize));
+    let output = match DEVICE_EXCHANGE.lock().unwrap().as_ref() {
+        Some(exchange) => exchange(&input),
+        None => r#"{"error":"DeviceUnavailable","message":"This shell has no device service bridge"}"#.into(),
+    };
+    py::PyUnicode_FromStringAndSize(output.as_ptr().cast(), output.len() as py::Py_ssize_t)
+}
+
+unsafe fn install_device_hook() {
+    let def = Box::leak(Box::new(py::PyMethodDef {
+        ml_name: c"_zkite_device_exchange".as_ptr(),
+        ml_meth: py::PyMethodDefPointer { PyCFunction: device_exchange },
+        ml_flags: py::METH_O,
+        ml_doc: c"Nonblocking Android service control channel.".as_ptr(),
+    }));
+    let func = py::PyCFunction_NewEx(def, std::ptr::null_mut(), std::ptr::null_mut());
+    if !func.is_null() {
+        py::PyDict_SetItemString(main_dict(), c"_zkite_device_exchange".as_ptr(), func);
+        py::Py_DecRef(func);
+    }
+}
+
 /// Run `f` marked as a pull, so any frame it produces is not also pushed.
 fn pull<T>(f: impl FnOnce() -> T) -> T {
     IN_PULL.with(|p| p.set(true));
@@ -205,6 +238,7 @@ fn ensure_initialized() -> Result<(), String> {
             // `_zkite_setup_tree` can register the push callback.
             if init_err.is_none() {
                 install_frame_hook();
+                install_device_hook();
             }
             py::PyEval_SaveThread(); // release the GIL we're implicitly holding
         }

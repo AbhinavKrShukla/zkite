@@ -89,6 +89,9 @@ class App:
         # Found by writing §34's own demo app, which called `update()` from `view()`
         # on its first draft.
         self._rendering = False
+        from . import _async
+        _async.bind_app(self)
+        _store_mod.set_update_lock(self._lock)
         _tasks.bind_app(self)
         _store_mod.set_render_callback(self._render_all)
 
@@ -123,6 +126,9 @@ class App:
         """Point the app at a freshly reloaded module (see reload.py)."""
         view_fn = _find_view(module)
         with self._lock:
+            from . import _async, _device
+            _async.cancel_all()
+            _device.reset()
             _tasks.cancel_tasks()
             self.module = module
             self.view_fn = view_fn
@@ -180,6 +186,24 @@ class App:
         if tb != self.last_error:
             log_error(tb)
         self.last_error = tb
+
+    def report_async_error(self, tb: str) -> None:
+        """Push the same development/release error surface used for render errors."""
+        with self._lock:
+            self._note_error(tb)
+            if self._mode == "tree":
+                base = self._last_good_tree or _EMPTY_TREE
+                self.last_tree = {
+                    "tag": "div", "id": "__zkite_root", "classes": "relative w-full h-full",
+                    "events": [], "attrs": dict(base.get("attrs", {})),
+                    "children": [base, format_error_tree(tb)],
+                }
+                if self._on_render_tree:
+                    self._on_render_tree(self.last_tree)
+            else:
+                self.last_html = self._last_good_html + format_error_overlay(tb)
+                if self._on_render:
+                    self._on_render(self.last_html)
 
     def _note_rendered(self) -> None:
         """Record that this frame rendered cleanly, logging only the *recovery*."""

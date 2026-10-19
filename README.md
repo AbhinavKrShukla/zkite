@@ -1,3 +1,7 @@
+> **ZKite 1.2.0:** device services and automatic `app.json` permission inference
+> are included. See [the API guide](docs/device-services.md) and
+> [release status](docs/status.md).
+
 <div align="center">
 
 # ZKite
@@ -5,7 +9,7 @@
 ### Build Native Android Apps in Pure Python with Instant Hot Reload
 
 [![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Android Target](https://img.shields.io/badge/Android-API%2029%2B%20(10%2B)-3DDC84?logo=android&logoColor=white)](https://developer.android.com/)
+[![Android Minimum](https://img.shields.io/badge/Android-API%2026%2B%20(8%2B)-3DDC84?logo=android&logoColor=white)](https://developer.android.com/)
 [![Google Play](https://img.shields.io/badge/Google%20Play-.aab%20Ready-34A853?logo=googleplay&logoColor=white)](https://play.google.com/console)
 [![Documentation](https://img.shields.io/badge/Docs-zkite.cloud-0284C7)](https://zkite.cloud)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -17,7 +21,7 @@
 
 </div>
  
-> Official developer documentation is live at **[zkite.cloud](https://zkite.cloud)**. PyPI release wheels and pre-built native runtime payloads will be published shortly.
+> Official developer documentation is live at **[zkite.cloud](https://zkite.cloud)**. Release wheels and pre-built native runtime payloads are available from PyPI.
 
 ---
 
@@ -105,11 +109,11 @@ Install into an isolated Python 3.14 virtual environment:
 ```bash
 # Linux / macOS
 python3.14 -m venv .venv && source .venv/bin/activate
-pip install zkite==1.1.2
+pip install zkite==1.2.0
 
 # Windows (PowerShell)
 py -3.14 -m venv .venv; .\.venv\Scripts\Activate.ps1
-pip install zkite==1.1.2
+pip install zkite==1.2.0
 ```
 
 ### Using uv
@@ -119,7 +123,7 @@ start with a bare uv project and then add ZKite:
 
 ```bash
 uv init --bare
-uv add zkite==1.1.2
+uv add zkite==1.2.0
 uv run zkite new myapp .
 uv run zkite dev
 ```

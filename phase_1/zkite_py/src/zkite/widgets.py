@@ -131,7 +131,8 @@ class RenderContext:
         if payload is not None:
             invoke(handler, payload)
         else:
-            handler()
+            from ._async import submit
+            submit(handler())
         return True
 
 
@@ -148,8 +149,10 @@ def invoke(handler: Callable[..., Any], value: Any) -> Any:
     import inspect
 
     if inspect.signature(handler).parameters:
-        return handler(value)
-    return handler()
+        from ._async import submit
+        return submit(handler(value))
+    from ._async import submit
+    return submit(handler())
 
 
 def _flatten(children: Iterable[Child]) -> list[Child]:

@@ -232,6 +232,12 @@ pub fn android_manifest(id: &AppIdentity) -> Vec<u8> {
         android:minSdkVersion="{min_sdk}"
         android:targetSdkVersion="{target_sdk}" />
 {permissions}
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.location.network" android:required="false" />
     <application
         android:label="@string/app_name"
         android:icon="@drawable/icon"
@@ -282,6 +288,9 @@ pub fn android_manifest(id: &AppIdentity) -> Vec<u8> {
              here so the tradeoff is visible rather than looking like an
              oversight. -->
 
+        <provider android:name="dev.zkite.runtime.SharedFiles"
+            android:authorities="{package}.zkite.files"
+            android:exported="false" android:grantUriPermissions="true" />
         <activity
             android:name="{activity}"
             android:label="@string/app_name"

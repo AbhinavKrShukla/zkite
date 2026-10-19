@@ -21,6 +21,7 @@ pack-sign = { path = "../../phase_0/vendor/pack/pack-sign", features = ["cert-ge
 pack-zip = { path = "../../phase_0/vendor/pack/pack-zip" }
 pack-aab = { path = "../../phase_0/vendor/pack/pack-aab", optional = true }
 deku = "0.19.1"
+prost = { version = "0.14.1", optional = true }
 rsa = { version = "0.9", features = ["pem"] }
 p12 = "0.6.3"
 rand = "0.8"
@@ -28,7 +29,7 @@ rcgen = "0.14"
 
 [features]
 default = []
-aab = ["dep:pack-aab"]
+aab = ["dep:pack-aab", "dep:prost"]
 
 [dev-dependencies]
 tempfile = "3"

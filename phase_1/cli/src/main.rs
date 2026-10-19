@@ -1,3 +1,4 @@
+mod permissions;
 mod build_cmd;
 mod dev_cmd;
 mod device;

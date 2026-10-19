@@ -13,7 +13,7 @@
 
 mod embed;
 pub use embed::{
-    back, dispatch, drain_log, framework_fingerprint, last_error, reload, scroll, set_frame_sink, setup,
+    set_device_exchange, back, dispatch, drain_log, framework_fingerprint, last_error, reload, scroll, set_frame_sink, setup,
 };
 
 pub mod anim;

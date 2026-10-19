@@ -54,6 +54,7 @@ pub fn prepare(project: &Path, backend: Backend, abi: &str, source: &Path) -> Re
         let keys = zkite_bundler::keystore::load_pem(&key_path).map_err(|e| anyhow::anyhow!("{e}"))?;
         let bytes = apk::compile_and_sign_apk_with_extras(&package, extras, &keys)
             .map_err(|e| anyhow::anyhow!("packaging the development preview: {e}"))?;
+        crate::permissions::verify_archive(&bytes, &identity.permissions, false)?;
         let mut staged = tempfile::NamedTempFile::new_in(&directory)?;
         staged.write_all(&bytes)?;
         staged.persist(&apk).context("saving the development preview")?;

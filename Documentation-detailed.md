@@ -1,8 +1,8 @@
-# ZKite 1.1.2 — detailed learner documentation
+# ZKite 1.2.0 — detailed learner documentation
 
-This is the learner-facing knowledge base for ZKite 1.1.2. It describes the implemented native Android framework, its public API, everyday workflows, and practical debugging. It intentionally contains no framework source listings, private release infrastructure, signing material, or credentials. Commands are terminal instructions; API names and configuration keys are reference material.
+This is the learner-facing knowledge base for ZKite 1.2.0. It describes the implemented native Android framework, its public API, everyday workflows, and practical debugging. It intentionally contains no framework source listings, private release infrastructure, signing material, or credentials. Commands are terminal instructions; API names and configuration keys are reference material.
 
-This guide covers ZKite **1.1.2**. See [release notes](CHANGELOG.md) and [release status](docs/status.md) for changes and tested scope.
+This guide covers the ZKite **1.2.0** release. See [release notes](CHANGELOG.md) and [release status](docs/status.md) for changes and tested scope.
 
 ## Contents and suggested learning order
 
@@ -24,19 +24,21 @@ This guide covers ZKite **1.1.2**. See [release notes](CHANGELOG.md) and [releas
 16. [Navigation between screens](#navigation-between-screens)
 17. [Overlays and selection](#overlays-and-selection)
 18. [Animation](#animation)
-19. [Configuration reference](#configuration-reference)
-20. [Dependencies and networking](#dependencies-and-networking)
-21. [Data and application lifecycle](#data-and-application-lifecycle)
-22. [Command reference](#command-reference)
-23. [Build, sign, and distribute an Android app](#build-sign-and-distribute-an-android-app)
-24. [Windows guide](#windows-guide)
-25. [Troubleshooting](#troubleshooting)
-26. [Performance and accessibility](#performance-and-accessibility)
-27. [Learning exercises](#learning-exercises)
-28. [Release checklist](#release-checklist)
-29. [Frequently asked questions](#frequently-asked-questions)
-30. [Glossary](#glossary)
-31. [Guidance for the documentation website](#guidance-for-the-documentation-website)
+19. [Device services and automatic permissions](#device-services-and-automatic-permissions)
+20. [Configuration reference](#configuration-reference)
+21. [Dependencies and networking](#dependencies-and-networking)
+22. [Data and application lifecycle](#data-and-application-lifecycle)
+23. [Command reference](#command-reference)
+24. [Build, sign, and distribute an Android app](#build-sign-and-distribute-an-android-app)
+25. [Windows guide](#windows-guide)
+26. [Troubleshooting](#troubleshooting)
+27. [Performance and accessibility](#performance-and-accessibility)
+28. [Learning exercises](#learning-exercises)
+29. [Release checklist](#release-checklist)
+30. [Frequently asked questions](#frequently-asked-questions)
+31. [Glossary](#glossary)
+32. [References](#references)
+33. [Guidance for the documentation website](#guidance-for-the-documentation-website)
 
 ## What ZKite does
 
@@ -46,7 +48,7 @@ The standard experience uses native rendering. It does not require a browser, HT
 
 A development preview can reload Python changes while you work. A standalone application includes what it needs to run without that development connection. You can start with `zkite run`; running a development preview first is unnecessary.
 
-ZKite suits native Android interfaces built from the documented layout, text, image, input, navigation, and state features. Features such as a camera API, comprehensive platform-service bindings, arbitrary compiled Python packages, and cross-platform iOS deployment are not part of this release's documented base. Historical plans describe ambitions and experiments; they are not promises of available features.
+ZKite suits native Android interfaces built from the documented layout, text, image, input, navigation, and state features. Version 1.2.0 adds files/uploads, system-camera capture, microphone and playback, haptics, sensors, sharing, location, notifications, secure storage and biometric prompts. Embedded camera preview, arbitrary compiled Python packages and iOS deployment remain outside this release. Historical plans describe ambitions and experiments; they are not promises of available features.
 
 ### Names you will encounter
 
@@ -63,11 +65,11 @@ Install the `zkite` distribution for the complete tool. Installing only the fram
 
 ## Supported environments
 
-| Item | ZKite 1.1 base |
+| Item | ZKite 1.2.0 |
 |---|---|
 | Host Python | CPython 3.14. Use the same minor version as the supplied Android runtime. |
-| Linux host | x86_64, glibc 2.28 or newer, using the manylinux wheel. |
-| Windows host | x86_64 Windows, using the `win_amd64` wheel. |
+| Linux host | x86_64, glibc 2.28 or newer, using the validated `manylinux_2_28_x86_64` wheel. |
+| Windows host | x86_64; the release wheel passed Windows-Python checks under Wine. |
 | Android minimum | Android 8.0 / API 26 by default. |
 | Android target | API 36 by default; application behavior still needs device testing. |
 | Android architectures | `arm64-v8a` and `x86_64`. |
@@ -75,11 +77,19 @@ Install the `zkite` distribution for the complete tool. Installing only the fram
 | Rendering | Native by default. |
 | App dependencies | Compatible pure-Python wheels; availability and transitive dependencies are checked. |
 
-The prepared local release contains Linux and Windows host wheels. Do not advertise macOS installation from this release set: a macOS wheel is not included. Windows ARM, Linux ARM, 32-bit Android, iOS, and web deployment are outside this distribution's support scope. An Android minimum SDK is an installation floor, not evidence that every manufacturer and Android release has been tested.
+The 1.2.0 release contains manylinux x86_64 and Windows x86_64 CLI wheels
+plus shared framework/payload wheels. Do not advertise macOS installation from this
+release set: a macOS wheel is not included. Windows ARM, Linux ARM, 32-bit Android,
+iOS, and web deployment are outside this distribution's support scope. An Android
+minimum SDK is an installation floor, not evidence that every manufacturer and
+Android release has been tested.
 
 You do not need Rust, Gradle, a JDK, the Android NDK, or Android Studio to build an ordinary app from the complete pip installation. Android Studio is optional if you want its emulator and device tools. An emulator needs a compatible Android image; the supplied emulator ABI is x86_64.
 
-Windows packaging and execution have been exercised with Windows Python under Wine. That is useful verification, but native Windows testing remains a separate qualification step. Test on the Windows versions and device drivers you intend to support.
+The 1.2.0 Windows wheel installed under Windows Python in Wine and built a standalone
+APK outside the checkout. That is useful verification, but native Windows testing
+remains a separate qualification step. Test on the Windows versions and device
+drivers you intend to support.
 
 ## Installation
 
@@ -95,7 +105,7 @@ Run these commands in order:
 
 1. `python3.14 -m venv .venv`
 2. `. .venv/bin/activate`
-3. `python -m pip install zkite==1.1.2`
+3. `python -m pip install zkite==1.2.0`
 4. `zkite --version`
 5. `adb version`
 
@@ -103,10 +113,11 @@ Install Android platform-tools separately if `adb` is unavailable, and add its d
 
 ### Windows installation
 
-In PowerShell, run:
+Use this PowerShell workflow. The Windows x86_64 release wheel passed its release
+check under Windows Python in Wine:
 
 1. `py -3.14 -m venv .venv`
-2. `.\.venv\Scripts\python.exe -m pip install zkite==1.1.2`
+2. `.\.venv\Scripts\python.exe -m pip install zkite==1.2.0`
 3. `.\.venv\Scripts\zkite.exe --version`
 4. `adb version`
 
@@ -114,9 +125,9 @@ These commands do not require activating a PowerShell script. If your organizati
 
 ### Install the current release
 
-Install ZKite with `python -m pip install zkite==1.1.2`. Pip installs the matching
-framework and Android runtime packages automatically. An Android APK is not a
-pip-installable file.
+Install with `python -m pip install zkite==1.2.0`; pip resolves the matching
+framework and payload distributions. An Android APK is not a pip-installable file.
+See [release status](docs/status.md) for qualification evidence and limits.
 
 ### Verify installation
 
@@ -276,7 +287,8 @@ def view():
 ```
 
 Replace the example endpoint with your service. Include `"INTERNET"` in
-`app.json` → `android.permissions` (new projects already do).
+`app.json` → `android.permissions`. In 1.2.0, run/build infer this for
+recognized network calls; use an explicit entry for dynamic or third-party use.
 
 `Task.start(fn, *args, **kwargs)` returns immediately. Four workers run concurrently,
 with a bounded admission limit of 32 running/queued jobs. Excess submissions raise
@@ -428,7 +440,7 @@ The native `Image` supports PNG and JPEG-family images and supported data URIs. 
 
 The default fit behavior is cover. Supported fit choices include contain, fill, none, and scale-down. Cover can crop edges; contain can leave unused space. Choose based on whether preserving the whole image or filling a frame matters more. Rounded clipping can shape the displayed frame.
 
-HTTPS PNG/JPEG URLs load asynchronously on native with verified TLS, a 2 MiB per-image limit and a bounded cache; declare the INTERNET permission. Downloads use four workers, a 15-second network timeout and a bounded cache. Failures leave an empty image and a log diagnostic; a later render can retry after 30 seconds. HTTPS redirects cannot downgrade to HTTP. HTTP cleartext, WebP/GIF/AVIF and full browser `object-position` behavior are not supported by the native image loader. Images consume decoded memory as well as disk space; large source dimensions can be expensive even when displayed small.
+HTTPS PNG/JPEG URLs load asynchronously on native with verified TLS, a 2 MiB per-image limit and a bounded cache; run/build infer INTERNET for recognized remote image sources; declare it explicitly for dynamic sources. Downloads use four workers, a 15-second network timeout and a bounded cache. Failures leave an empty image and a log diagnostic; a later render can retry after 30 seconds. HTTPS redirects cannot downgrade to HTTP. HTTP cleartext, WebP/GIF/AVIF and full browser `object-position` behavior are not supported by the native image loader. Images consume decoded memory as well as disk space; large source dimensions can be expensive even when displayed small.
 
 ### Built-in icons
 
@@ -551,6 +563,309 @@ Duration-based and spring-based timing are alternative choices, not settings to 
 
 Handle completion through `on_animend` when the application needs to coordinate the next state. Animation does not automatically add navigation transitions or make a slow view calculation fast. Keep essential information understandable without relying solely on motion.
 
+## Device services and automatic permissions
+
+The native Android backend exposes device operations as ordinary Python modules.
+App authors need no Java, Gradle, Android SDK, or JNI code. Importing the modules on
+a desktop is safe; calling an Android-only operation raises `DeviceUnavailable`.
+The experimental WebView backend does not implement the device bridge.
+
+### Automatic permissions
+
+`zkite build apk`, `zkite build aab`, and `zkite run` analyze your project's Python
+source **without executing it**, then update `app.json` before packaging. Preview
+preparation also uses this scan. For example:
+
+```python
+from zkite import audio, haptics
+
+async def start_recording():
+    recording = await audio.record()
+    await haptics.vibrate(duration_ms=80)
+    return recording
+```
+
+The build adds:
+
+```json
+{
+  "android": {
+    "permissions": ["RECORD_AUDIO", "VIBRATE"],
+    "inferred_permissions": ["RECORD_AUDIO", "VIBRATE"]
+  }
+}
+```
+
+These keys are merged into your existing configuration; identity, icon, version,
+and manual permissions are preserved. `inferred_permissions` records ownership:
+when the last detected use disappears, a later build removes only the permission
+that ZKite added. To retain one manually, keep it in `permissions` and remove it
+from `inferred_permissions`. Commit app.json so permission changes are reviewable.
+A failed parse leaves app.json unchanged. Concurrent edits cause an explicit error
+rather than overwriting the edit. Repeating a scan with no changes does not rewrite
+app.json. Existing legacy pyproject identity is preserved when app.json is created.
+
+The build prints reasons and writes `.zkite/permissions.json`. It detects ordinary
+imports, aliases, local re-exports, function references, literal `getattr`, nested
+imports, remote Image sources, and common Python HTTP clients. It scans project
+Python files, excluding build output, environments, hidden directories and symlinks.
+It is conservative about code in branches and functions: it does not prove runtime
+reachability. It cannot prove the behavior of arbitrary dynamically generated code,
+third-party packages, monkey-patching, or values passed through unknown objects.
+Declare permissions or capabilities explicitly for those cases. Dynamic lookups
+and dynamic permission names generate diagnostics where recognizable.
+
+```json
+{
+  "android": {
+    "capabilities": ["audio.record", "location", "notifications"],
+    "permissions": ["INTERNET"]
+  }
+}
+```
+
+Capabilities are optional. Supported names: `files`, `camera.capture`,
+`camera.torch`, `audio.record`, `audio.play`, `haptics`, `sensors`, `share`,
+`clipboard`, `device`, `network`, `location`, `notifications`, `secrets`,
+`biometrics`. Explicit capabilities also participate in permission inference.
+
+File/photo selection, external camera capture, and semantic UI haptics do not
+inherently need broad storage/CAMERA/VIBRATE permissions respectively. The scanner
+only requests their more privileged variants when used. Location defaults to coarse
+permission; `high_accuracy=True` or a dynamic accuracy argument adds fine permission.
+Android may still grant only approximate location. INTERNET and other normal
+permissions have no runtime prompt; microphone/camera/location/notifications ask
+in context. Denial is an ordinary Python exception, not an app crash.
+
+Every generated APK/AAB is checked after signing: ZKite reads its compiled manifest,
+checks that `uses-permission` entries are direct children of `manifest`, verifies
+`android:name` namespace/resource encoding, rejects duplicates, and compares the
+exact permission set with the resolved configuration. AAB checks inspect
+`base/manifest/AndroidManifest.xml`; APK checks inspect `AndroidManifest.xml`.
+This uses built-in Rust parsing, so app developers need no Android tooling.
+Camera, autofocus, microphone and location hardware are marked optional to avoid
+unintended permission-derived device filtering.
+
+These checks verify packaging, not Play approval. Your app's actual use, privacy
+policy, Data safety answers, and any applicable Play declarations must match.
+See [Android manifest permissions](https://developer.android.com/guide/topics/manifest/uses-permission-element)
+and [Google Play permission policy](https://support.google.com/googleplay/android-developer/answer/16558241).
+
+### Async handlers and errors
+
+Use `async def` handlers for device operations. They run on ZKite's background async
+loop, so permission dialogs and file pickers do not block rendering. `state.update`
+is atomic with respect to rendering. Keep CPU-heavy and blocking Python work out of
+async handlers; use Task or `asyncio.to_thread` for that work.
+
+```python
+from zkite import Button, Column, Text, store
+from zkite import files
+from zkite.errors import DeviceError
+
+@store
+class Form:
+    name: str = "No file selected"
+    busy: bool = False
+
+def view(s: Form):
+    async def choose():
+        s.update(busy=True)
+        try:
+            file = await files.pick(types=["application/pdf", "image/*"])
+            if file is not None:
+                s.update(name=file.name)
+        except DeviceError as exc:
+            s.update(name=str(exc))
+        finally:
+            s.update(busy=False)
+    return Column("flex-1 p-6 gap-4",
+        Button("p-4 bg-indigo-600 text-white", "Attach", on_tap=choose, disabled=s.busy),
+        Text("", s.name))
+```
+
+User picker cancellation returns `None` (`[]` for pick_many). Programmatic
+cancellation uses `asyncio.CancelledError`; deadlines use `TimeoutError`.
+Device failures derive from `DeviceError`: `PermissionDenied`,
+`PermissionNotDeclared`, `UnsupportedFeature`, `ResourceBusy`, `DeviceUnavailable`,
+`OperationInterrupted`, `DeviceIOError`, and `RuntimeMismatch`.
+Uncaught async errors use the normal development traceback/release generic overlay.
+Catch expected permission/provider errors and offer recovery in your own UI.
+
+There are at most 64 event coroutines, 32 pending Android requests, 16 sensor
+subscriptions, and 8 audio handles. An already-open system dialog rejects another
+interactive request with ResourceBusy. Cancellation discards late results; it cannot
+undo an external action that already happened or forcibly dismiss every system UI.
+A reload invalidates pending work and closes native resources. Old cancelled handlers
+cannot update stores through state.update. Activity replacement cancels the prior
+app's async work; process death does not preserve Python coroutine stacks.
+
+### Files, export, and upload
+
+```python
+from zkite import files, network
+
+file = await files.pick(types=["application/pdf"])
+photos = await files.pick_many(types=["image/*"], limit=10)
+photo = await files.pick_photo()
+
+if file:
+    await file.copy_to(files.data_dir() / "document.pdf")
+    with await file.local_copy() as local:
+        # local.path is an actual pathlib.Path; do blocking I/O in a worker.
+        print(local.path)
+    await files.save(file, suggested_name="export.pdf", mime_type="application/pdf")
+    response = await network.upload("https://your-service.example/upload", file)
+    print(response.status)
+```
+
+`FileRef` has name, mime_type, optional size, uri, and optional path. A provider URI
+is not a filesystem path and may refer to cloud content. `copy_to` streams with a
+default 256 MiB limit and replaces the destination only after a successful copy.
+`local_copy` returns a context manager whose temporary directory is deleted on exit.
+`FileRef.open("rb")` only supports local captures; materialize provider files first.
+`persist()` requests persistent read access if supported; `release()` gives it up.
+Neither prevents the provider from deleting the document. The provider must expose
+an openable stream; virtual documents without one are not supported.
+
+`files.data_dir()` is durable app-private storage. `files.cache_dir()` is disposable.
+Captures and recordings initially live in cache; copy anything important into
+`data_dir`. Android can reclaim cache. Export can leave a partial destination if an
+external provider fails after writing starts; app-local copy uses atomic replacement.
+
+Photo Picker is used on API 33+, with the document picker on older Android versions.
+No all-files storage permission is added. App-private sharing uses a non-exported
+provider with per-URI grants and a narrowly scoped cache directory.
+
+`network.upload` streams multipart POST with a fixed memory buffer, TLS verification,
+size limits, timeout, optional fields/headers and throttled `on_progress(sent,total)`.
+It supports at most four concurrent uploads. It does not retry or follow redirects;
+non-2xx status raises `network.HTTPError` with `.response`. HTTP requires explicit
+`allow_http=True` for development. Cancellation is cooperative between chunks;
+already transmitted bytes and remote side effects cannot be undone.
+
+### Camera and microphone
+
+```python
+from zkite import camera, audio
+
+photo = await camera.capture()                  # external camera UI
+video = await camera.record_video(duration=30)  # external camera UI
+await camera.torch(True)
+await camera.torch(False)
+
+recording = await audio.record(max_seconds=60)  # AAC/M4A
+clip = await recording.stop()                   # FileRef
+# Or await recording.cancel() to discard it.
+```
+
+External capture uses a full-resolution output file, not just a thumbnail. Camera
+app behavior and capture quality depend on the device. Recording stops when the
+app leaves the foreground; `stop()` retrieves a successfully finalized recording.
+Very short/failed recordings raise a DeviceError. Camera and microphone hardware,
+privacy switches and resource contention can make an operation unavailable even
+after permission was granted. Torch turns off when backgrounded.
+
+Embedded CameraPreview, raw PCM/frame streams, image orientation/thumbnail helpers,
+and background recording are not included in 1.2.0.
+
+### Playback, speech, and haptics
+
+```python
+from zkite import audio, haptics
+
+player = await audio.play("assets/sound.wav", volume=0.5)
+await player.pause()
+await player.seek(1.5)
+await player.resume()
+print(await player.state())
+await player.stop()
+await audio.speak("Saved", language="en-IN")
+
+haptics.perform("confirm")  # click, reject, long_press, keyboard also supported
+await haptics.vibrate(duration_ms=100)
+await haptics.vibrate(pattern=[0, 50, 100, 50])
+await haptics.stop()
+```
+
+Playback follows Android's selected output route, handles audio focus loss and
+headset disconnects, and pauses in background. Resume is explicit. Close players
+when finished. Local files and FileRefs are supported; network streaming players,
+background media sessions, forced communication routing and volume-key interception
+are not part of this API. Speech requires a working installed engine/language.
+Haptics honor user settings; an accepted request is not proof of physical vibration.
+Explicit patterns are bounded to ten seconds and do not repeat indefinitely.
+
+### Sensors
+
+```python
+from zkite import sensors
+
+print(await sensors.available())
+subscription = await sensors.accelerometer.watch(
+    lambda sample: print(sample.x, sample.y, sample.z), rate_hz=30)
+# Close when leaving the screen:
+subscription.close()
+```
+
+Available service names: accelerometer, linear_acceleration, gyroscope, rotation,
+magnetometer, light, proximity, shake. `watch` is async and returns a Subscription.
+`Sample` contains values, timestamp_ns (monotonic), accuracy and dropped count.
+Acceleration uses m/s²; gyroscope uses rad/s; magnetic field uses µT; light uses lux;
+proximity uses the device's distance values in cm; rotation exposes Android's vector
+components. Coordinates are device-relative. Shake is an accelerometer heuristic
+with gravity filtering and cooldown, not a calibrated vibration analyzer.
+
+Requested rates are 1–100 Hz and are hints. Slow consumers drop/coalesce samples
+instead of accumulating an unbounded queue. Sensor callbacks run off the Android UI
+thread. Subscriptions pause in background and resume with the app, and close on
+reload. Close them on screen exit yourself; automatic navigation/tab visibility
+ownership is not implemented. Async callbacks are allowed; callback errors are
+available in `subscription.error` and stop that subscription.
+
+### Other integrations
+
+```python
+from zkite import share, clipboard, device, location, notifications, secrets, biometrics
+
+await share.send(files=[file], text="Receipt", mime_type=file.mime_type)
+await clipboard.write("Copied text")
+text = await clipboard.read()
+await device.open_url("https://example.com")  # also mailto/tel/geo
+await device.keep_awake(True)
+print(device.info(), await device.battery(), await device.network())
+position = await location.current(high_accuracy=False, timeout=30)
+await notifications.show("Download finished", "Your report is ready", id=7)
+await notifications.cancel(7)
+await secrets.set("token", "small secret")
+value = await secrets.get("token")
+await secrets.delete("token")
+verified = await biometrics.authenticate(title="Unlock")
+```
+
+Share returns when the chooser launches; it does not report that anything was sent.
+Location requests one foreground fix using platform providers, without a Google
+Play Services dependency. Missing/disabled providers and unavailable fixes are
+reported or time out; this is not background tracking. Notifications are immediate
+and use Android channels; scheduling and notification action callbacks are deferred.
+
+Secrets use an app-owned Android Keystore AES-GCM key with authenticated names and
+atomic ciphertext files in Android's no-backup directory. Values are limited to
+16 KiB. Hardware-backed storage is not guaranteed on every device. Biometric prompt
+requires API 28+ and enrollment. It is a separate authentication UI: it does not
+cryptographically gate access to secrets or provide an authentication token to a
+remote service.
+
+Bluetooth LE, NFC, USB serial, contacts/calendar, deep links, QR scanning and
+background jobs remain separate future work. They are not silently emulated.
+
+### Device Lab
+
+[examples/device_lab](examples/device_lab/main.py) exercises the APIs without external dependencies. Run it with
+`zkite run` from that directory. Core checks save a report in app-private storage;
+recording/camera/permission actions are explicit buttons. The local-upload button
+requires a test endpoint on port 8769 and `adb reverse tcp:8769 tcp:8769`.
+
 ## Configuration reference
 
 A complete example (omit `icon` to use the supplied ZKite logo):
@@ -593,14 +908,16 @@ All app settings come from `app.json` when it exists; legacy TOML app settings a
 | `version_code` | Integer base used in generated Android versioning. Increase appropriately for updates. |
 | `min_sdk` | Minimum Android API level, default 26. |
 | `target_sdk` | Android target API level, default 36. |
-| `permissions` | Manifest permission declarations required by application features. |
+| `permissions` | Manual and inferred manifest permissions, synchronized before run/build. |
+| `inferred_permissions` | Permissions owned by the automatic scanner; obsolete entries can be removed. |
+| `capabilities` | Optional explicit device feature names for uses the scanner cannot infer. |
 | `icon` | Path to the launcher icon image. |
 
 The package identifier and signing identity determine whether Android considers an installation an update to the same app. Changing the display label does not change that identity. Choose the final package identifier before distributing an app to users.
 
 Generated per-ABI outputs can derive their Android version codes from the configured base. Inspect the produced artifacts when planning store updates; do not assume every per-ABI APK contains the base integer unchanged. Never reduce a version code for an intended update.
 
-Permission declarations do not automatically implement runtime permission requests. A feature requiring user consent still needs the corresponding application/platform flow. Do not add a long list of permissions speculatively; use only what the app actually needs.
+ZKite device services request applicable runtime consent in context. A manifest declaration alone does not grant user consent or implement arbitrary third-party permission flows. The scanner adds required declarations before run/build and preserves manual entries. See [automatic permissions](#automatic-permissions) for ownership, explicit capabilities and packaged-manifest verification.
 
 ## Dependencies and networking
 
@@ -637,11 +954,11 @@ version = "0.1.0"
 dependencies = [
     "starlette==1.8.0",
     "uvicorn==0.54.0",
-    "zkite>=1.1.1",
+    "zkite>=1.2.0",
 ]
 ```
 
-The `zkite` constraint is a minimum; install 1.1.2 to use the APIs in this guide.
+The `zkite` constraint is a minimum; install 1.2.0 to use the APIs in this guide.
 Keep Uvicorn on its pure-Python networking stack:
 
 ```python
@@ -664,7 +981,7 @@ can legitimately make a previously optional native dependency required.
 
 ### Network requests
 
-Declare `"permissions": ["INTERNET"]` under `android` in `app.json` when the app needs network access. New projects include this permission; remove it for offline apps. Requests and its pure-Python dependencies have been tested with verified HTTPS on the Moto G54. A declaration grants the manifest capability; it does not supply an HTTP client, authentication flow, retry strategy, or offline behavior. Use an appropriate compatible Python dependency or standard library feature and keep blocking network work out of view rendering.
+Run/build infer INTERNET from recognized network APIs and remote image sources. Declare `"permissions": ["INTERNET"]` under `android` in `app.json` for dynamic or third-party uses that cannot be inferred. New projects include this permission; remove it for offline apps. Requests and its pure-Python dependencies have been tested with verified HTTPS on the Moto G54. A declaration grants the manifest capability; it does not supply an HTTP client, authentication flow, retry strategy, or offline behavior. Use an appropriate compatible Python dependency or standard library feature and keep blocking network work out of view rendering.
 
 Plan for slow connections, no connection, timeouts, invalid responses, and a user leaving the screen before a request finishes. Store credentials appropriately for the application's threat model. A private server secret embedded in an APK is recoverable and should not be treated as private.
 
@@ -676,7 +993,7 @@ This flag concerns standard-library pruning. It does not add unsupported native 
 
 ## Data and application lifecycle
 
-The 1.0.0 stabilization commit preserves queued render commands and rejects expired Android surfaces during startup/resume. Text-selection callbacks also guard against an uninitialized overlay owner. These fixes are retained in 1.1.2; they do not make in-memory state persistent.
+The 1.0.0 stabilization commit preserves queued render commands and rejects expired Android surfaces during startup/resume. Text-selection callbacks also guard against an uninitialized overlay owner. These fixes are retained in 1.2.0; they do not make in-memory state persistent.
 
 Android can pause, resume, or terminate an app independently of the development terminal. A well-behaved app must tolerate leaving the foreground and returning. In-memory stores represent the current process state; they are not a guarantee of survival after process termination.
 
@@ -708,7 +1025,7 @@ Prepares and installs a project preview, connects to the selected device, and wa
 
 ### `zkite run`
 
-Builds a standalone APK for the chosen device, installs it, and launches it. The default signing key is retained per project for repeat development updates.
+Scans Python and synchronizes permissions in app.json, builds a standalone APK for the chosen device, verifies its manifest permissions, installs it, and launches it. The default signing key is retained per project for repeat development updates.
 
 | Option | Use |
 |---|---|
@@ -721,7 +1038,7 @@ Builds a standalone APK for the chosen device, installs it, and launches it. The
 
 ### `zkite build apk` and `zkite build aab`
 
-Build application artifacts without installing them. A connected phone is unnecessary. APK output is per architecture; an AAB can contain the selected architectures together.
+Synchronize inferred permissions in app.json, build application artifacts, and verify permissions in the signed APK/AAB before saving output. A connected phone is unnecessary. APK output is per architecture; an AAB can contain the selected architectures together.
 
 | Option | Use |
 |---|---|
@@ -905,12 +1222,22 @@ Before sharing an app, verify the following on representative devices:
 - Layout works with long text, realistic data, narrow screens, and relevant accessibility settings.
 - Images and helper modules are actually packaged; dependencies work on Android.
 - Networking handles offline, slow, and failed responses without blocking the interface.
-- Permissions are appropriate, versioning is correct, and signing material is backed up privately.
+- Review inferred/manual permissions and `.zkite/permissions.json`; explicitly declare dynamic uses.
+- Test permission denial, picker cancellation, disabled hardware, background/resume and reload during device work.
+- Copy important recordings/captures from cache and close sensor/audio resources.
+- Versioning is correct and signing material is backed up privately.
+- Play privacy policy, Data safety answers and declarations match actual app behavior; manifest verification is not approval.
 - The chosen Android distribution channel accepts and validates the final artifact.
 
 Keep a short record of devices and scenarios tested. Describe remaining limitations accurately rather than inferring coverage from a successful build alone.
 
 ## Frequently asked questions
+
+**Do permissions get added automatically?** Run/build and preview preparation infer recognized uses and update app.json. Dynamic and third-party use may need explicit permissions/capabilities. Runtime consent is still the user's choice.
+
+**Does a valid APK/AAB guarantee Google Play acceptance?** No. ZKite verifies compiled permission entries; store policies and declarations apply to the complete app.
+
+**Can I use the new device APIs on WebView or desktop?** The native Android backend implements them. Imports are desktop-safe, but Android-only calls raise `DeviceUnavailable` without a device backend.
 
 **Do I need to run `zkite dev` before `zkite run`?** No. Run builds and launches a standalone app itself.
 
@@ -965,13 +1292,3 @@ Keep a short record of devices and scenarios tested. Describe remaining limitati
 | Virtual list | A list that constructs the visible rows and a small nearby buffer. |
 | Wheel | A built Python distribution file installed by pip. |
 | Widget tree | The hierarchy describing the current interface. |
-
-## Guidance for the documentation website
-
-Use the major sections as stable documentation pages, retaining a visible version selector or version label. Group them into Getting Started, Core Concepts, Widgets, Device Integration, Building Apps, and Troubleshooting. Keep the support matrix and packaging limitations easy to find before a learner chooses a project structure.
-
-Present Windows and Linux installation as separate tabs, with copyable terminal commands and explicit working-directory notes. Keep prerequisites beside the commands. Show the current release number prominently.
-
-Turn widget and configuration tables into reference pages without inventing extra properties. Link conceptual explanations to the corresponding troubleshooting entries. Label unsupported capabilities as current limitations and keep roadmap ideas separate from available API documentation.
-
-This file can be used as public learning content. Do not enrich it with private signing examples, credentials, internal source listings, local maintainer machine paths, or unsupported promises. If the website later adds runnable application examples, verify them against the documented release rather than generating plausible but untested APIs.

@@ -21,3 +21,5 @@ pub mod aab;
 pub use pack_common::{PackError, Result};
 
 pub mod launcher_icon;
+
+pub mod manifest_verify;

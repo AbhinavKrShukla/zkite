@@ -2119,7 +2119,7 @@ dependencies = [
 
 [[package]]
 name = "zkite"
-version = "1.1.2"
+version = "1.2.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -2149,6 +2149,7 @@ dependencies = [
  "pack-common",
  "pack-sign",
  "pack-zip",
+ "prost",
  "rand",
  "rcgen",
  "rsa",

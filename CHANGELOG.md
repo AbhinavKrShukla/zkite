@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.2.0 — device services
+
+- Async event handlers now execute on an owned event loop, surface errors, and cancel
+  on reload. Store updates are atomic with rendering and reject stale async owners.
+- Native Python APIs for file/photo picking, export, streaming uploads, system-camera
+  photo/video capture, torch, microphone recording, playback, speech, haptics, sensors,
+  sharing, clipboard, device state, foreground location, notifications, encrypted
+  secrets, and biometric prompts.
+- Build/run infer permissions from Python source and preserve them in app.json with
+  ownership tracking, atomic updates, and an explanation report. Explicit capabilities
+  remain available for dynamic or external code. Only obsolete inferred entries are removed.
+- Signed APK/AAB manifests are decoded and checked for exact permission sets, proper
+  placement, namespace/resource encoding, and duplicates. Hardware is optional.
+- Added Device Lab, service/async/upload/scanner regressions and compiled-manifest tests.
+- See [device services](docs/device-services.md) for API contracts and deferred features.
+
 ## 1.1.2 — prepared for publication
 
 - Add background I/O tasks and swipeable, controlled tabs.
