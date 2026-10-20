@@ -335,7 +335,7 @@ public class ZKiteActivity extends Activity {
         @Override
         public void onBackInvoked() {
             Log.i(TAG, "back: OnBackInvokedCallback fired");
-            Native.onBackPressed();
+            if (!dev.zkite.runtime.DeviceServices.handleBack()) Native.onBackPressed();
         }
     }
 
@@ -361,8 +361,16 @@ public class ZKiteActivity extends Activity {
     @Override
     public void onBackPressed() {
         Log.i(TAG, "back: onBackPressed() called");
+        if (dev.zkite.runtime.DeviceServices.handleBack()) return;
         if (nativeBooted) Native.onBackPressed();
         else finish();
+    }
+
+    @Override
+    protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (deviceServices != null) deviceServices.onNewIntent(intent);
     }
 
     @Override

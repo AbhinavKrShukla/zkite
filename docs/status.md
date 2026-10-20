@@ -1,8 +1,34 @@
 # Release status
 
-Version **1.2.0** is the current release. The native Android backend includes device
+Version **1.2.1** is the prepared release. The native Android backend includes device
 services and automatic permission inference for run/build. See
 [the API guide](device-services.md).
+
+## 1.2.1 validation
+
+244 framework tests and 107 CLI tests passed (3 CLI tests intentionally ignored),
+alongside permission analysis, packaging and bundler checks. Both native Android
+Dev Shell ABIs were rebuilt with the persistent development signing identity.
+
+On the connected Android 15 phone, cold/warm custom-scheme links reached Python,
+including route/query data. Audio and video continued beyond four seconds;
+pause/resume, volume, looping, playback speed and precise video seeking passed.
+On the Android 16 iQOO I2409, the same playback checks passed, plus fullscreen
+entry/exit, Back restoring inline bounds, and state polling across background/resume.
+Screenshots record title-free native overlays and composable Python controls.
+Forced audio-focus interruptions were not independently verified on these devices.
+
+Linux manylinux 2.28 and Windows x86_64 wheels installed into clean environments
+and built APKs outside the checkout (Windows under Wine, native Windows still
+pending). Auditwheel confirmed the Linux baseline. All four wheels passed strict
+Twine validation; APK signatures and the dual-ABI AAB were independently checked.
+Both PyPI Source metadata and description links point to the requested zkite repo.
+
+The new services require the native backend. Video surfaces sit above the Python
+renderer: use native control styling over the surface, or custom Python widgets
+outside its bounds. Website ownership/App Link verification and other devices'
+codec behavior still need application-specific testing. Evidence is under
+`release/validation-1.2.1/`; no Play acceptance is implied.
 
 ## 1.2.0 validation
 

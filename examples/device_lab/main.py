@@ -14,6 +14,7 @@ class Lab:
     busy: bool = False
     selected: object = None
     recording: object = None
+    playback: object = None
 
 async def action(s, name, fn):
     s.update(busy=True, status=name + "…")
@@ -99,12 +100,17 @@ async def upload_fixture():
 async def play_selected(s):
     if s.selected is None:
         return "Record or select audio first"
+    if s.playback is not None:
+        await s.playback.stop()
     player = await audio.play(s.selected)
-    try:
-        await asyncio.sleep(2)
-        return await player.state()
-    finally:
-        await player.stop()
+    s.update(playback=player)
+    return "Playing until completion or Stop"
+
+async def stop_playback(s):
+    if s.playback is not None:
+        await s.playback.stop()
+        s.update(playback=None)
+    return "Stopped"
 
 def view(s: Lab):
     def button(label, fn):
@@ -122,6 +128,7 @@ def view(s: Lab):
         button("Speak", lambda: audio.speak("ZKite device services are ready")),
         button("Camera permission", lambda: permissions.ask("CAMERA")),
         button("Play selected audio", lambda: play_selected(s)),
+        button("Stop audio", lambda: stop_playback(s)),
         button("Test upload (local)", upload_fixture),
         button("Location", lambda: location.current(timeout=15)),
         button("Notification", lambda: notifications.show("ZKite 1.2", "Device Lab notification")),

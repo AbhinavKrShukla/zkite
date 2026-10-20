@@ -1,5 +1,7 @@
 """Foreground recording, playback and text-to-speech."""
 from pathlib import Path
+import math
+from urllib.parse import urlsplit
 from . import _device
 from .files import FileRef, _ref
 from .errors import OperationInterrupted
@@ -17,7 +19,10 @@ class _Handle:
 
     async def state(self):
         self._check()
-        return await _device.request("audio.state", handle=self.id)
+        state = await _device.request("audio.state", handle=self.id)
+        if state.get("state") == "closed":
+            self.closed = True
+        return state
 
 
 class Recording(_Handle):
@@ -47,9 +52,40 @@ class Playback(_Handle):
 
     async def seek(self, seconds):
         self._check()
-        if seconds < 0:
-            raise ValueError("seconds must be nonnegative")
+        _number(seconds, 0, 2147483, "seconds")
         await _device.request("audio.seek", handle=self.id, seconds=seconds)
+
+    def watch(self, callback, *, interval=0.25):
+        """Poll state into a sync/async callback; cancel the returned future to stop."""
+        from . import _async
+        import asyncio
+        import inspect
+        _number(interval, .05, 60, "interval")
+        if not callable(callback):
+            raise TypeError("callback must be callable")
+        self._check()
+        async def run():
+            while not self.closed and self._generation == _device._generation:
+                state = await self.state()
+                result = callback(state)
+                if inspect.isawaitable(result): await result
+                if state["state"] in ("completed", "closed", "error"): break
+                await asyncio.sleep(interval)
+        return _async.submit(run())
+
+    async def configure(self, *, volume=None, loop=None, speed=None):
+        """Change volume (0–1), looping, or speed (.25–4) without replacing playback."""
+        self._check()
+        args = {}
+        if volume is not None:
+            _number(volume, 0, 1, "volume")
+            args["volume"] = volume
+        if speed is not None:
+            _number(speed, .25, 4, "speed")
+            args["speed"] = speed
+        if loop is not None:
+            args["loop"] = bool(loop)
+        await _device.request("audio.configure", handle=self.id, **args)
 
     async def stop(self):
         if not self.closed:
@@ -66,9 +102,8 @@ async def record(*, max_seconds=300, max_bytes=32 * 1024 * 1024):
 
 
 async def play(source, *, volume=1.0, loop=False):
-    if not 0 <= volume <= 1:
-        raise ValueError("volume must be between 0 and 1")
-    uri = source.uri if isinstance(source, FileRef) else Path(source).resolve().as_uri()
+    _number(volume, 0, 1, "volume")
+    uri = _source_uri(source)
     return Playback(await _device.request("audio.play", uri=uri, volume=volume, loop=bool(loop)))
 
 
@@ -76,3 +111,17 @@ async def speak(text, *, language=None, rate=1.0):
     if not isinstance(text, str) or not text or len(text) > 4000 or not 0.1 <= rate <= 3:
         raise ValueError("Provide 1–4000 characters and a rate between 0.1 and 3")
     await _device.request("audio.speak", text=text, language=language, rate=rate, timeout=600)
+
+
+def _number(value, low, high, name):
+    if not isinstance(value, (int, float)) or not math.isfinite(value) or not low <= value <= high:
+        raise ValueError(f"{name} must be between {low} and {high}")
+
+
+def _source_uri(source):
+    if isinstance(source, FileRef):
+        return source.uri
+    value = str(source)
+    if urlsplit(value).scheme in ("https", "http", "content", "file"):
+        return value
+    return Path(source).resolve().as_uri()

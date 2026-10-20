@@ -25,6 +25,7 @@ import java.util.concurrent.*;
 public final class DeviceServices {
     private static volatile DeviceServices current;
     private final Activity activity;
+    private final java.util.concurrent.ConcurrentLinkedQueue<String> links = new java.util.concurrent.ConcurrentLinkedQueue<>();
     private final Handler ui = new Handler(Looper.getMainLooper());
     private final ThreadPoolExecutor io = new ThreadPoolExecutor(2, 2, 30, TimeUnit.SECONDS,
         new ArrayBlockingQueue<Runnable>(16));
@@ -65,7 +66,26 @@ public final class DeviceServices {
             "data_dir", data.getAbsolutePath(), "cache_dir", activity.getCacheDir().getAbsolutePath());
         if (Build.VERSION.SDK_INT >= 33) activity.registerReceiver(noisy,new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY),Context.RECEIVER_NOT_EXPORTED);
         else activity.registerReceiver(noisy,new IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY));
+        onNewIntent(activity.getIntent());
         current = this;
+    }
+    public static boolean handleBack() {
+        DeviceServices host=current;
+        if(host!=null) for(Sound sound:host.sounds.values()) if(sound.fullscreen) {
+            sound.fullscreen(false);
+            if(sound.controls!=null) sound.controls.show();
+            return true;
+        }
+        return false;
+    }
+    public void onNewIntent(Intent intent) {
+        if (intent != null && Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null) {
+            String url = intent.getData().toString();
+            if (url.length() <= 8192) {
+                while (links.size() >= 32) links.poll();
+                links.add(url);
+            }
+        }
     }
     private static JSONObject obj(Object... kv) {
         JSONObject out = new JSONObject();
@@ -80,6 +100,7 @@ public final class DeviceServices {
             JSONObject q = new JSONObject(input);
             String op = q.getString("op");
             long id = q.optLong("id");
+            if (op.equals("links.next")) return obj("url",host.links.poll()).toString();
             if (op.equals("info")) return host.info.toString();
             if (op.equals("poll")) {
                 JSONArray events = new JSONArray();
@@ -226,7 +247,7 @@ public final class DeviceServices {
     private void execute(JSONObject q) {
         long id = q.optLong("id"); String op = q.optString("op"); JSONObject a = q.optJSONObject("args");
         try {
-            if (!foreground && !op.startsWith("files.copy") && !op.equals("audio.close")) {
+            if (!foreground && !op.startsWith("files.copy") && !op.equals("audio.close") && !op.equals("audio.state")) {
                 fail(id, "OperationInterrupted", "Device operation requires a foreground Activity"); return;
             }
             switch (op) {
@@ -354,28 +375,41 @@ public final class DeviceServices {
                     if (!sound.valid) { sound.close(); sounds.remove(sound.handle); throw new IOException("Recording could not be finalized"); }
                     done(id, describe(Uri.fromFile(sound.file))); sounds.remove(sound.handle); return;
                 }
+                case "video.play":
                 case "audio.play": {
                     if (sounds.size() >= 8) { fail(id, "ResourceBusy", "Too many audio handles"); return; }
                     Sound sound = new Sound(NEXT_HANDLE.getAndIncrement()); sound.requestId=id; sounds.put(sound.handle, sound);
                     sound.player = new MediaPlayer();
                     sound.player.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());
                     sound.player.setDataSource(activity, uri(a.getString("uri")));
-                    sound.player.setVolume((float)a.getDouble("volume"), (float)a.getDouble("volume"));
+                    sound.volume = (float)a.getDouble("volume");
+                    sound.player.setVolume(sound.volume, sound.volume);
                     sound.player.setLooping(a.optBoolean("loop"));
                     sound.player.setOnPreparedListener(p -> {
                         if (!pending.contains(id) || !foreground) { sound.close(); sounds.remove(sound.handle); fail(id,"OperationInterrupted","Playback interrupted before preparation completed"); return; }
                         if (!sound.focus()) { sound.close(); sounds.remove(sound.handle); fail(id, "ResourceBusy", "Audio focus unavailable"); return; }
-                        p.start(); sound.state = "playing"; done(id, sound.handle);
+                        sound.prepared=true; p.start(); sound.state = "playing"; sound.reason=""; done(id, sound.handle);
                     });
                     sound.player.setOnCompletionListener(p -> { sound.state = "completed"; sound.abandonFocus(); });
-                    sound.player.setOnErrorListener((p,w,e) -> { sound.state = "error"; sound.close(); fail(id,"DeviceIOError","Playback failed"); return true; });
-                    sound.player.prepareAsync(); return;
+                    sound.player.setOnErrorListener((p,w,e) -> { sound.close(); sound.state="error"; sound.reason="media_error:"+w+":"+e; fail(id,"DeviceIOError","Playback failed ("+w+", "+e+")"); return true; });
+                    if (op.equals("video.play")) sound.attachVideo(a);
+                    else sound.player.prepareAsync();
+                    return;
                 }
-                case "audio.pause": { Sound sound = sound(a); sound.player.pause(); sound.state = "paused"; sound.abandonFocus(); done(id, null); return; }
-                case "audio.resume": { Sound sound = sound(a); if (!sound.focus()) { fail(id,"ResourceBusy","Audio focus unavailable"); return; } sound.player.start(); sound.state = "playing"; done(id,null); return; }
-                case "audio.seek": { Sound sound = sound(a); sound.player.seekTo((int)(a.getDouble("seconds") * 1000)); done(id,null); return; }
+                case "audio.pause": { Sound sound = sound(a); sound.resumeOnGain=false; sound.player.pause(); sound.state = "paused"; sound.reason="user"; sound.abandonFocus(); done(id, null); return; }
+                case "audio.resume": { Sound sound = sound(a); if (!sound.focus()) { fail(id,"ResourceBusy","Audio focus unavailable"); return; } sound.player.start(); sound.state = "playing"; sound.reason=""; done(id,null); return; }
+                case "audio.seek": { Sound sound = sound(a); sound.player.seekTo((long)(a.getDouble("seconds") * 1000), MediaPlayer.SEEK_CLOSEST); done(id,null); return; }
+                case "audio.configure": {
+                    Sound sound=sound(a);
+                    if(a.has("volume")) { sound.volume=(float)a.getDouble("volume"); sound.applyVolume(); }
+                    if(a.has("loop")) sound.player.setLooping(a.getBoolean("loop"));
+                    if(a.has("speed")) { boolean playing=sound.player.isPlaying(); sound.player.setPlaybackParams(sound.player.getPlaybackParams().setSpeed((float)a.getDouble("speed"))); sound.speed=(float)a.getDouble("speed"); if(!playing) sound.player.pause(); }
+                    done(id,null); return;
+                }
+                case "video.fullscreen": { Sound sound=sound(a); sound.fullscreen(a.getBoolean("enabled")); done(id,null); return; }
+                case "video.bounds": { Sound sound=sound(a); sound.videoBounds(a.getJSONArray("bounds")); done(id,null); return; }
                 case "audio.close": { Sound sound = sounds.remove(a.getLong("handle")); if (sound != null) sound.close(); done(id,null); return; }
-                case "audio.state": { Sound sound = sound(a); done(id,obj("state",sound.state,"reason",sound.reason,"position",sound.player != null ? sound.player.getCurrentPosition()/1000.0 : (SystemClock.elapsedRealtime()-sound.started)/1000.0)); return; }
+                case "audio.state": { Sound sound = sounds.get(a.getLong("handle")); if(sound==null) { done(id,obj("state","closed","reason","released","position",0,"duration",0)); return; } done(id,obj("state",sound.state,"reason",sound.reason,"duration",sound.player != null ? sound.player.getDuration()/1000.0 : null,"volume",sound.volume,"muted",sound.muted,"fullscreen",sound.fullscreen,"loop",sound.player != null && sound.player.isLooping(),"speed",sound.speed,"position",sound.player != null ? sound.player.getCurrentPosition()/1000.0 : (sound.started > 0 ? (SystemClock.elapsedRealtime()-sound.started)/1000.0 : 0))); return; }
                 case "audio.speak": speak(q); return;
                 case "clipboard.write":
                     ((ClipboardManager)activity.getSystemService(Context.CLIPBOARD_SERVICE)).setPrimaryClip(ClipData.newPlainText("",a.getString("text"))); done(id,null); return;
@@ -527,6 +561,15 @@ public final class DeviceServices {
         String state="preparing", reason="";
         AudioFocusRequest focus;
         long requestId;
+        float volume=1f, speed=1f;
+        boolean resumeOnGain, muted, ducked, prepared, fullscreen;
+        android.widget.FrameLayout.LayoutParams inlineLayout;
+        int previousSystemUi;
+        boolean statusVisible, navVisible;
+        android.widget.FrameLayout videoFrame;
+        MediaOverlay controls;
+        android.view.TextureView texture;
+        android.view.Surface videoSurface;
         Sound(long handle) { this.handle=handle; }
         boolean focus() {
             AudioManager manager=(AudioManager)activity.getSystemService(Context.AUDIO_SERVICE);
@@ -536,14 +579,111 @@ public final class DeviceServices {
                     if (change < 0 && handle == -1 && speechId != 0) {
                         if(tts!=null) tts.stop(); fail(speechId,"OperationInterrupted","Speech lost audio focus"); speechId=0;
                     }
-                    if (change < 0 && player != null) {
-                        try { if (player.isPlaying()) player.pause(); state="paused"; reason="focus_lost"; }
-                        catch (Exception ignored) { }
-                    }
+                    if (player != null) try {
+                        if(change == AudioManager.AUDIOFOCUS_GAIN) {
+                            ducked=false; applyVolume();
+                            if(resumeOnGain && foreground) { player.start(); state="playing"; reason=""; }
+                            resumeOnGain=false;
+                        } else if(change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) {
+                            ducked=true; applyVolume();
+                        } else if(change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT || change == AudioManager.AUDIOFOCUS_LOSS) {
+                            resumeOnGain=change == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT && player.isPlaying();
+                            if(player.isPlaying()) player.pause();
+                            state="paused"; reason=resumeOnGain ? "focus_transient" : "focus_lost";
+                        }
+                    } catch(Exception ignored) { }
+
                 },ui).build();
             return manager.requestAudioFocus(focus)==AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
         }
+        void fullscreen(boolean enabled) {
+            if(videoFrame==null) throw new IllegalStateException("Not a video handle");
+            if(fullscreen==enabled) return;
+            View decor=activity.getWindow().getDecorView();
+            if(enabled) {
+                for(Sound other:sounds.values()) if(other!=this && other.fullscreen) other.fullscreen(false);
+                inlineLayout=new android.widget.FrameLayout.LayoutParams((android.widget.FrameLayout.LayoutParams)videoFrame.getLayoutParams());
+                previousSystemUi=decor.getSystemUiVisibility();
+                if(Build.VERSION.SDK_INT>=30) {
+                    android.view.WindowInsets insets=decor.getRootWindowInsets();
+                    statusVisible=insets==null || insets.isVisible(android.view.WindowInsets.Type.statusBars());
+                    navVisible=insets==null || insets.isVisible(android.view.WindowInsets.Type.navigationBars());
+                    android.view.WindowInsetsController controller=activity.getWindow().getInsetsController();
+                    if(controller!=null) controller.hide(android.view.WindowInsets.Type.systemBars());
+                } else decor.setSystemUiVisibility(previousSystemUi | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY);
+                videoFrame.setLayoutParams(new android.widget.FrameLayout.LayoutParams(-1,-1));
+            } else {
+                if(inlineLayout!=null) videoFrame.setLayoutParams(inlineLayout);
+                if(Build.VERSION.SDK_INT>=30) {
+                    android.view.WindowInsetsController controller=activity.getWindow().getInsetsController();
+                    if(controller!=null) {
+                        if(statusVisible) controller.show(android.view.WindowInsets.Type.statusBars());
+                        if(navVisible) controller.show(android.view.WindowInsets.Type.navigationBars());
+                    }
+                } else decor.setSystemUiVisibility(previousSystemUi);
+            }
+            fullscreen=enabled;
+        }
+        void videoBounds(JSONArray bounds) throws JSONException {
+            if(videoFrame==null) throw new IllegalStateException("Not a video handle");
+            fullscreen(false);
+            float density=activity.getResources().getDisplayMetrics().density;
+            android.widget.FrameLayout.LayoutParams layout=new android.widget.FrameLayout.LayoutParams(
+                Math.round((float)bounds.getDouble(2)*density),Math.round((float)bounds.getDouble(3)*density));
+            layout.leftMargin=Math.round((float)bounds.getDouble(0)*density);
+            layout.topMargin=Math.round((float)bounds.getDouble(1)*density);
+            videoFrame.setLayoutParams(layout);
+        }
+        void attachVideo(JSONObject args) throws Exception {
+            videoFrame=new android.widget.FrameLayout(activity);
+            videoFrame.setBackgroundColor(android.graphics.Color.BLACK);
+            texture=new android.view.TextureView(activity);
+            videoFrame.addView(texture,new android.widget.FrameLayout.LayoutParams(-1,-1));
+            activity.addContentView(videoFrame,new android.widget.FrameLayout.LayoutParams(-1,-1));
+            if(args.has("bounds")) videoBounds(args.getJSONArray("bounds"));
+            else fullscreen(true);
+            final String fit=args.optString("fit","contain");
+            player.setOnVideoSizeChangedListener((p,w,h)->fitVideo(w,h,fit));
+            texture.setSurfaceTextureListener(new android.view.TextureView.SurfaceTextureListener() {
+                public void onSurfaceTextureAvailable(android.graphics.SurfaceTexture surface,int w,int h) {
+                    if(player==null) return;
+                    videoSurface=new android.view.Surface(surface); player.setSurface(videoSurface); if(!prepared) player.prepareAsync();
+                }
+                public void onSurfaceTextureSizeChanged(android.graphics.SurfaceTexture surface,int w,int h) { if(player!=null) fitVideo(player.getVideoWidth(),player.getVideoHeight(),fit); }
+                public boolean onSurfaceTextureDestroyed(android.graphics.SurfaceTexture surface) { if(player!=null) { try { player.pause(); state="paused"; reason="surface_lost"; player.setSurface(null); } catch(Exception ignored) {} } return true; }
+                public void onSurfaceTextureUpdated(android.graphics.SurfaceTexture surface) {}
+            });
+            if(args.optBoolean("controls",true)) {
+                JSONObject style=args.optJSONObject("control_style");
+                controls=new MediaOverlay(activity,videoFrame,style==null ? new JSONObject() : style,new MediaOverlay.Player() {
+                    public boolean playing() { return player!=null && !state.equals("preparing") && player.isPlaying(); }
+                    public int position() { return player==null || state.equals("preparing") ? 0 : player.getCurrentPosition(); }
+                    public int duration() { return player==null || state.equals("preparing") ? 0 : player.getDuration(); }
+                    public void toggle() { if(player==null || state.equals("preparing")) return; if(player.isPlaying()) { player.pause(); state="paused"; reason="user"; abandonFocus(); } else if(focus()) { player.start(); state="playing"; reason=""; } }
+                    public void seek(int ms) { if(player!=null && !state.equals("preparing")) player.seekTo((long)ms,MediaPlayer.SEEK_CLOSEST); }
+                    public void speed(float speed) { if(player!=null && !state.equals("preparing")) { boolean playing=player.isPlaying(); player.setPlaybackParams(player.getPlaybackParams().setSpeed(speed)); Sound.this.speed=speed; if(!playing) player.pause(); } }
+                    public void mute(boolean mute) { muted=mute; applyVolume(); }
+                    public boolean fullscreen() { return fullscreen; }
+                    public void toggleFullscreen() { Sound.this.fullscreen(!fullscreen); }
+                    public void error(RuntimeException error) { reason="control_error: "+error.getMessage(); }
+                    public void close() { fail(requestId,"OperationInterrupted","Video closed"); Sound.this.close(); sounds.remove(handle); }
+                });
+            }
+        }
+
+        void fitVideo(int width,int height,String fit) {
+            if(texture==null || width<=0 || height<=0 || texture.getWidth()==0 || texture.getHeight()==0) return;
+            float w=texture.getWidth(), h=texture.getHeight();
+            float scale=fit.equals("cover") ? Math.max(w/width,h/height) : Math.min(w/width,h/height);
+            android.graphics.Matrix matrix=new android.graphics.Matrix();
+            if(!fit.equals("fill")) matrix.setScale(width*scale/w,height*scale/h,w/2,h/2);
+            texture.setTransform(matrix);
+        }
+        void applyVolume() {
+            if(player!=null) { float level=muted ? 0 : volume*(ducked ? .2f : 1f); player.setVolume(level,level); }
+        }
         void abandonFocus() {
+            resumeOnGain=false;
             if (focus != null) ((AudioManager)activity.getSystemService(Context.AUDIO_SERVICE)).abandonAudioFocusRequest(focus);
         }
         void finishRecording(String why) {
@@ -553,6 +693,10 @@ public final class DeviceServices {
             finally { recorder.release(); recorder=null; state=valid ? "stopped" : "error"; reason=why; }
         }
         void close() {
+            if(fullscreen && videoFrame!=null) fullscreen(false);
+            if(controls!=null) { controls.close(); controls=null; }
+            if(videoFrame!=null) { ((android.view.ViewGroup)videoFrame.getParent()).removeView(videoFrame); videoFrame=null; }
+            if(videoSurface!=null) { videoSurface.release(); videoSurface=null; }
             finishRecording("cancelled");
             if (player != null) { player.release(); player=null; }
             abandonFocus();
@@ -640,6 +784,15 @@ public final class DeviceServices {
     }
     private final class SensorWatch implements SensorEventListener {
         long requestId;
+        float volume=1f, speed=1f;
+        boolean resumeOnGain, muted, ducked, prepared, fullscreen;
+        android.widget.FrameLayout.LayoutParams inlineLayout;
+        int previousSystemUi;
+        boolean statusVisible, navVisible;
+        android.widget.FrameLayout videoFrame;
+        MediaOverlay controls;
+        android.view.TextureView texture;
+        android.view.Surface videoSurface;
         final long handle;
         final SensorManager manager;
         final Sensor sensor;

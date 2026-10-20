@@ -43,6 +43,7 @@ fn build_signed_test_apk(package: &str) -> Vec<u8> {
         target_sdk: 34,
             activity: APPSHELL_ACTIVITY.into(),
             permissions: vec!["android.permission.CAMERA".into(), "android.permission.RECORD_AUDIO".into(), "android.permission.VIBRATE".into()],
+            deep_links: Vec::new(),
     };
     let manifest = android_manifest(&id);
     let resources = vec![
@@ -138,6 +139,7 @@ fn duplicate_extra_paths_panic_instead_of_silently_clobbering() {
         target_sdk: 34,
             activity: APPSHELL_ACTIVITY.into(),
             permissions: vec!["android.permission.CAMERA".into(), "android.permission.RECORD_AUDIO".into(), "android.permission.VIBRATE".into()],
+            deep_links: Vec::new(),
     };
     let pkg = Package {
         android_manifest: android_manifest(&id),

@@ -1,4 +1,4 @@
-# ZKite 1.2.0 documentation
+# ZKite 1.2.1 documentation
 
 ZKite builds Android applications from Python. You describe a widget tree, update
 Python state, and ZKite lays out and draws the interface using its Rust native
@@ -12,15 +12,15 @@ historical proposals and experiments; they are not installation instructions.
 
 The complete distribution is `zkite`; it installs matching `zkite-framework` and
 `zkite-payload` dependencies. The command and Python import are both `zkite`.
-Version **1.2.0** is the current release. Install it from PyPI into a CPython 3.14
+Version **1.2.1** is the current release. Install it from PyPI into a CPython 3.14
 environment:
 
 ```bash
-python -m pip install zkite==1.2.0
+python -m pip install zkite==1.2.1
 ```
 
 Pip installs matching CLI, framework and payload distributions. Keep all three at
-version 1.2.0. See [release status](docs/status.md) for tested platforms and scope.
+version 1.2.1. See [release status](docs/status.md) for tested platforms and scope.
 
 For the extended learner knowledge base, see
 [Documentation-detailed.md](Documentation-detailed.md). It covers public concepts,
@@ -44,7 +44,7 @@ and APK-build checks under Windows Python in Wine:
 
 ```powershell
 py -3.14 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install zkite==1.2.0
+.\.venv\Scripts\python.exe -m pip install zkite==1.2.1
 adb devices
 .\.venv\Scripts\zkite.exe new hello
 cd hello
@@ -65,7 +65,7 @@ On Linux x86_64, install the manylinux release from PyPI:
 ```bash
 python3.14 -m venv .venv
 . .venv/bin/activate
-python -m pip install zkite==1.2.0
+python -m pip install zkite==1.2.1
 adb devices
 zkite new hello
 cd hello
@@ -367,7 +367,7 @@ def view():
 ```
 
 Replace the example endpoint with your service. Include `"INTERNET"` in
-`app.json` → `android.permissions`. In 1.2.0, run/build infer this for
+`app.json` → `android.permissions`. In 1.2.1, run/build infer this for
 recognized network calls; use an explicit entry for dynamic or third-party use.
 
 `Task.start(fn, *args, **kwargs)` returns immediately. Four workers run concurrently,
@@ -515,11 +515,11 @@ version = "0.1.0"
 dependencies = [
     "starlette==1.8.0",
     "uvicorn==0.54.0",
-    "zkite>=1.2.0",
+    "zkite>=1.2.1",
 ]
 ```
 
-The `zkite` constraint is a minimum; install 1.2.0 to use the APIs in this guide.
+The `zkite` constraint is a minimum; install 1.2.1 to use the APIs in this guide.
 Keep Uvicorn on its pure-Python networking stack:
 
 ```python
@@ -722,7 +722,7 @@ cargo build --release --locked --manifest-path phase_1/cli/Cargo.toml
 ABI=arm64-v8a ZKITE_DEVSHELL=1 phase_3/gpu_harness/scripts/build_apk.sh
 ABI=x86_64 ZKITE_DEVSHELL=1 phase_3/gpu_harness/scripts/build_apk.sh
 python phase_1/cli/scripts/stage_payload.py release/payload --abi arm64-v8a --abi x86_64
-python phase_1/cli/scripts/build_wheels.py --payload release/payload --out release/wheels --version 1.2.0 --verify
+python phase_1/cli/scripts/build_wheels.py --payload release/payload --out release/wheels --version 1.2.1 --verify
 ```
 
 Put JDK 17's `bin` on `PATH` and set `JAVA_HOME` for those release steps. Staging
@@ -769,3 +769,190 @@ version settings, and release signing key to continue updating the same app.
 The generic Dev Shell now uses `dev.zkite.gpuharness` (native) or
 `dev.zkite.devshell` (WebView). `zkite dev` installs the renamed shell alongside
 any older shell. App data in an older Dev Shell does not migrate automatically.
+
+
+## Deep links (1.2.1, native backend)
+
+Register links in `app.json`, then rebuild/install the app (Python hot reload cannot
+change an Android manifest):
+
+```json
+{
+  "name": "my-app",
+  "backend": "native",
+  "android": {
+    "package": "com.yourcompany.myapp",
+    "deep_links": [
+      {"scheme": "myapp", "host": "open", "path_prefix": "/item"},
+      {"scheme": "https", "host": "app.yourdomain.com", "path_prefix": "/item", "auto_verify": true}
+    ]
+  }
+}
+```
+
+Use a custom scheme for quick testing. HTTPS App Links also need your website's
+`https://app.yourdomain.com/.well-known/assetlinks.json` to associate your package
+with the **SHA-256 signing-certificate fingerprint**. For Play-distributed apps,
+use the Play app-signing certificate. `auto_verify` alone does not establish domain
+ownership. See Android's [App Links setup](https://developer.android.com/training/app-links/add-applinks).
+Custom schemes can be registered by other apps; Android may show a chooser.
+An absent app cannot receive a custom-scheme link; an HTTPS URL can serve a web fallback.
+
+```python
+from zkite import Column, Text, store
+from zkite import links
+
+@store
+class Screen:
+    item: str = "Home"
+
+def opened(link, s: Screen):
+    # Treat URLs as untrusted input; allow only routes your app supports.
+    if link.scheme == "myapp" and link.host == "open" and link.path.startswith("/item/"):
+        s.update(item=link.path.removeprefix("/item/"))
+
+# Once at module scope, never on every view render. Annotated stores are injected.
+listener = links.listen(opened)
+
+def view(s: Screen):
+    return Column("p-6", Text("text-xl", s.item))
+
+url = links.create("myapp", "open", "/item/42", ref="shared message")
+# myapp://open/item/42?ref=shared+message
+```
+
+`Link` exposes `url`, `scheme`, `host`, `path` (percent-encoded) and `query`
+(a dictionary of lists, preserving repeated/blank values). `create` encodes paths
+and query values; pass an unescaped path. Share the resulting string using
+`share.send(text=url)`. Creating a URL does not open the app; clicking it does.
+`listen` accepts sync or async callbacks, delivers links sequentially, and returns
+a future with `.cancel()`. An exception ends that listener and reaches the app's
+async error handler. Reload cancels listeners. For manual consumption use
+`links.next_link()`; it returns `Link` or `None`. Use one consumer per app.
+The queue retains up to 32 incoming links (oldest dropped on overflow), rejects
+URLs longer than 8192 characters, and handles both cold launches and `onNewIntent`
+while running. Linked apps use Android `singleTask` launch mode.
+
+```bash
+adb shell am start -W -a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d 'myapp://open/item/42?ref=test' com.yourcompany.myapp
+```
+
+Run once with the app closed and once with it open. Project previews use a separate
+package identity; inspect the CLI's installed package when testing `zkite dev`.
+HTTPS domain verification must include that package/certificate if testing a preview.
+
+## Audio, video and customizable controls (1.2.1)
+
+These services require the native Android backend. Playback continues until the
+track ends, you stop it, or Android interrupts it; no fixed two-second timer is
+part of the playback API. The Device Lab's old two-second sample timer has been
+removed. Keep a handle to control and eventually release the player.
+
+```python
+from zkite import audio, video
+
+async def start_audio(path):
+    player = await audio.play(path, volume=0.8, loop=False)
+    return player
+
+async def start_video(path):
+    return await video.play(path, bounds=(0, 80, 360, 203), fit="contain",
+        control_style={
+            "accent": "#22C55E", "foreground": "#FFFFFF",
+            "background": "#CC111827", "text_size": 16, "padding": 12,
+            "placement": "bottom", "auto_hide_ms": 3000,
+            "skip_seconds": 10, "show_time": True, "show_seek": True,
+            "show_skip": True, "show_mute": True, "show_speed": True,
+            "show_close": True, "show_fullscreen": True,
+        })
+```
+
+Sources may be filesystem paths, `FileRef`, `file://`, `content://`, or HTTP(S)
+URLs. The permission scanner infers `INTERNET` for HTTP(S) and dynamic media sources.
+For dynamically loaded code, declare `android.permissions: ["INTERNET"]`; prefer HTTPS
+(Android's cleartext policy may reject HTTP). Decoding depends on the device's
+supported codecs. DRM, adaptive-streaming guarantees, subtitle tracks, picture in
+picture and background/lock-screen playback are not supplied by this API.
+
+| Operation | Purpose |
+|---|---|
+| `await player.pause()` / `resume()` | Pause/resume the same player |
+| `await player.seek(seconds)` | Seek from the beginning; seconds must be finite and nonnegative |
+| `await player.configure(volume=.5, speed=1.5, loop=True)` | Change any subset; volume 0–1, speed .25–4 |
+| `await player.state()` | `state`, `reason`, `position`, `duration`, `volume`, `muted`, `loop`, `speed`, `fullscreen` |
+| `player.watch(callback, interval=.25)` | Poll snapshots into sync/async callback; returns cancellable future |
+| `await player.stop()` | Release resources; safe to repeat |
+| `await video_player.bounds(x, y, width, height)` | Move/resize native video, in content-relative Android dp |
+
+Position/duration are seconds. Stop watchers on screen exit. `watch` also ends on
+completion, closure, error or reload; restart it if replaying a completed handle.
+A player cannot be reused after `stop()` or a runtime reload. There are at most
+eight live media/recording handles. Stop unused players to release them.
+
+Android pauses playback when the Activity backgrounds or an audio route disconnects.
+Resume explicitly after those interruptions. Transient focus loss pauses and resumes
+on focus return while foreground; ducking lowers volume without pausing. Permanent
+focus loss requires explicit resume. `reason` distinguishes `user`, `background`,
+`route_disconnected`, `focus_transient`, `focus_lost`, and `surface_lost`. Playback
+speed support can vary by decoder. Android controls' speed cycle is .5/1/1.25/1.5/2×.
+
+The native overlay intentionally contains no video title. Its **Fullscreen** button
+enters immersive fullscreen; tap **Exit fullscreen** or press Android Back to
+restore the previous bounds and system bars. `await player.fullscreen(True/False)`
+provides the same control in Python. Set `show_fullscreen=False` to hide that button.
+Video `bounds=None` starts in fullscreen; `fit` is `contain` (letterbox), `cover`
+(crop), or `fill` (stretch). Tapping the surface toggles its Android overlay. Set
+`auto_hide_ms=0` to keep controls visible; `controls=False` removes them. All
+`show_*` settings are optional booleans. Colors are `#RRGGBB` or `#AARRGGBB`;
+`placement` is `top`/`bottom`. `text_size` is 8–72sp, `padding` 0–100dp,
+`auto_hide_ms` 0–60000, `skip_seconds` 1–3600.
+
+For complete Python UI control, use ordinary widgets against the handle. The
+`media.Controls` helper is an ordinary `Column`, so it also works in `Overlay`:
+
+```python
+from zkite import Button, Column, Overlay, Text, store
+from zkite import audio, media
+
+@store
+class PlayerState:
+    player: object = None
+    snapshot: object = None
+
+async def start(s):
+    if s.player is not None:
+        await s.player.stop()
+    player = await audio.play("assets/song.mp3")
+    s.update(player=player, snapshot=await player.state())
+    player.watch(lambda snapshot: s.update(snapshot=snapshot))
+
+def view(s: PlayerState):
+    return Column("flex-1",
+        Button("p-4", "Play", on_tap=lambda: start(s)),
+        Overlay("w-full rounded-2xl bg-slate-900 p-5",
+            media.Controls("gap-4", player=s.player, state=s.snapshot,
+                parts=("status", "time", "seek", "buttons", "volume", "speed", "loop"),
+                button_class="rounded-full bg-emerald-600 p-3 text-white",
+                text_class="text-white", slider_class="w-full", row_class="gap-3",
+                labels={"play": "▶", "pause": "Ⅱ", "close": "Done"},
+                leading=Text("text-xl text-white", "Now playing"),
+                trailing=Text("text-slate-400", "Your own footer"),
+                on_close=lambda: s.update(player=None, snapshot=None)),
+            placement="items-end justify-center p-4")
+        if s.player and s.snapshot else None)
+```
+
+For a video handle, add `"fullscreen"` to `parts` to provide a Python fullscreen button.
+Reorder/omit `parts`, supply `leading`/`trailing` widgets, change labels/classes,
+or replace the helper with your own Buttons, Sliders and layout. The example's
+paths are relative to the bundled app directory; use absolute paths if your app
+changes its working directory.
+
+**Video layering:** the Android video surface is above the Python-rendered tree.
+Python widgets cannot cover that rectangle. For controls directly over the video,
+use `control_style`. For an arbitrary Python UI, use bounded video with
+`controls=False` and put Python controls outside its rectangle. Bounds are
+absolute content coordinates and do not automatically follow scrolling/layout;
+update them after changing your layout. Closing/stopping video removes its surface.
+
+Runnable picker/player example: `examples/media_player/`.

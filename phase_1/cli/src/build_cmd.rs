@@ -221,6 +221,7 @@ pub fn run(args: BuildArgs) -> Result<BuildOutput> {
     // `zkite build apk --backend native` never has to edit (and then remember to
     // un-edit) pyproject.toml.
     let backend = args.backend.or(config.backend).unwrap_or(Backend::DEFAULT);
+    anyhow::ensure!(config.identity.deep_links.is_empty() || backend == Backend::Native, "deep_links require the native backend");
     let shell = backend.shell(&repo_root);
     config.identity.activity = shell.activity.to_string();
 
@@ -322,6 +323,7 @@ pub fn run(args: BuildArgs) -> Result<BuildOutput> {
                     min_sdk: config.identity.min_sdk,
                     target_sdk: config.identity.target_sdk,
                     permissions: config.identity.permissions.clone(),
+                    deep_links: config.identity.deep_links.clone(),
                     activity: config.identity.activity.clone(),
                 };
                 println!(
@@ -543,7 +545,7 @@ fn load_project_config(project_dir: &Path) -> Result<ProjectConfig> {
     if let Some(android) = android {
         let table = android.as_table().context("android must be an object")?;
         for key in table.keys() {
-            anyhow::ensure!(["package", "label", "version_code", "min_sdk", "target_sdk", "icon", "permissions", "capabilities", "inferred_permissions"].contains(&key.as_str()), "unknown android setting: {key}");
+            anyhow::ensure!(["package", "label", "version_code", "min_sdk", "target_sdk", "icon", "permissions", "capabilities", "inferred_permissions", "deep_links"].contains(&key.as_str()), "unknown android setting: {key}");
         }
         for key in ["package", "label"] {
             if let Some(value) = table.get(key) {
@@ -617,7 +619,7 @@ fn load_project_config(project_dir: &Path) -> Result<ProjectConfig> {
         for capability in value.as_array().context("android.capabilities must be an array")? {
             let name = capability.as_str().context("capabilities must be strings")?;
             let required: &[&str] = match name {
-                "files" | "camera.capture" | "audio.play" | "sensors" | "share" | "clipboard" | "device" | "secrets" => &[],
+                "files" | "camera.capture" | "audio.play" | "video.play" | "links" | "sensors" | "share" | "clipboard" | "device" | "secrets" => &[],
                 "biometrics" => &["USE_BIOMETRIC"],
                 "camera.torch" => &["CAMERA"],
                 "audio.record" => &["RECORD_AUDIO"],
@@ -633,6 +635,23 @@ fn load_project_config(project_dir: &Path) -> Result<ProjectConfig> {
             }
         }
     }
+    let mut deep_links = Vec::new();
+    if let Some(value) = android.and_then(|a| a.get("deep_links")) {
+        for entry in value.as_array().context("android.deep_links must be an array")? {
+            let table = entry.as_table().context("each deep link must be an object")?;
+            for key in table.keys() {
+                anyhow::ensure!(["scheme", "host", "path_prefix", "auto_verify"].contains(&key.as_str()), "unknown deep link setting: {key}");
+            }
+            let scheme = table.get("scheme").and_then(|v| v.as_str()).context("deep link scheme required")?;
+            let host = table.get("host").and_then(|v| v.as_str()).context("deep link host required")?;
+            anyhow::ensure!(!scheme.is_empty() && scheme.as_bytes()[0].is_ascii_lowercase() && scheme.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '+' | '-' | '.')), "deep link scheme must be lowercase URI scheme");
+            anyhow::ensure!(!host.is_empty() && host.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '-' | '.')), "deep link host must be a lowercase hostname");
+            let path_prefix = table.get("path_prefix").map(|v| v.as_str().filter(|p| p.starts_with('/')).map(str::to_string).context("path_prefix must start with / ")).transpose()?;
+            let auto_verify = table.get("auto_verify").map(|v| v.as_bool().context("auto_verify must be boolean")).transpose()?.unwrap_or(false);
+            anyhow::ensure!(!auto_verify || scheme == "https", "auto_verify requires https");
+            deep_links.push(manifest_gen::DeepLink { scheme: scheme.into(), host: host.into(), path_prefix, auto_verify });
+        }
+    }
     Ok(ProjectConfig {
         name,
         identity: AppIdentity {
@@ -646,6 +665,7 @@ fn load_project_config(project_dir: &Path) -> Result<ProjectConfig> {
             // config alone can't know it, since `--backend` outranks the file.
             activity: NATIVESHELL_ACTIVITY.to_string(),
             permissions,
+            deep_links,
         },
         dependencies,
         backend,
@@ -670,6 +690,7 @@ pub(crate) fn preview_identity(project: &Path, backend: Backend) -> Result<(AppI
     let config = load_project_config(project)?;
     manifest_gen::validate_package(&config.identity.package).map_err(anyhow::Error::msg)?;
     let icon = load_icon(config.icon.as_ref(), crate::payload::root()?)?;
+    anyhow::ensure!(config.identity.deep_links.is_empty() || backend == Backend::Native, "deep_links require the native backend");
     let mut identity = config.identity;
     // Different checkouts may have different development keys. Keep their previews
     // independent, and never overwrite the standalone application's package/data.
@@ -1363,6 +1384,19 @@ mod tests {
         v.extend_from_slice(&[8, 2, 0, 0, 0]);
         v.extend_from_slice(&[0, 0, 0, 0]); // crc
         v
+    }
+
+    #[test]
+    fn deep_link_config_validates_registration() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("app.json"), r#"{"name":"links","android":{"deep_links":[{"scheme":"https","host":"example.org","path_prefix":"/item","auto_verify":true}]}}"#).unwrap();
+        let config=load_project_config(dir.path()).unwrap();
+        assert_eq!(config.identity.deep_links.len(),1);
+        assert!(config.identity.deep_links[0].auto_verify);
+        for entry in [r#"{"scheme":"demo","host":"open","auto_verify":true}"#, r#"{"scheme":"demo","host":"open","path_prefix":"oops"}"#, r#"{"scheme":"demo","host":"open","unknown":1}"#] {
+            std::fs::write(dir.path().join("app.json"), format!(r#"{{"name":"links","android":{{"deep_links":[{entry}]}}}}"#)).unwrap();
+            assert!(load_project_config(dir.path()).is_err());
+        }
     }
 
     #[test]

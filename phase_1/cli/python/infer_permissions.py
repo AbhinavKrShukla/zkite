@@ -9,7 +9,7 @@ import sys
 
 CAPABILITIES = {
     "files": [], "camera.capture": [], "camera.torch": ["CAMERA"],
-    "audio.record": ["RECORD_AUDIO"], "audio.play": [], "haptics": ["VIBRATE"],
+    "audio.record": ["RECORD_AUDIO"], "audio.play": [], "video.play": [], "links": [], "haptics": ["VIBRATE"],
     "sensors": [], "share": [], "clipboard": [], "device": [], "secrets": [],
     "biometrics": ["USE_BIOMETRIC"], "network": ["INTERNET", "ACCESS_NETWORK_STATE"],
     "location": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"],
@@ -32,7 +32,8 @@ OPERATIONS = {
     "http.client.HTTPSConnection": ["INTERNET"],
 }
 MODULE_EXPORTS = {
-    "zkite": ["audio", "camera", "files", "sensors", "haptics", "network", "device", "location", "notifications", "biometrics", "permissions", "Image"],
+    "zkite": ["video", "links", "audio", "camera", "files", "sensors", "haptics", "network", "device", "location", "notifications", "biometrics", "permissions", "Image"],
+    "zkite.video": ["play"],
     "zkite.audio": ["record", "play", "speak"], "zkite.camera": ["capture", "record_video", "torch"],
     "zkite.haptics": ["perform", "vibrate", "stop"], "zkite.location": ["current"],
     "zkite.network": ["upload"], "zkite.notifications": ["show", "cancel"],
@@ -176,6 +177,12 @@ def analyze(files, capabilities=()):
                 name = node.args[0] if node.args else next((k.value for k in node.keywords if k.arg == "permission"), None)
                 if isinstance(name, ast.Constant) and isinstance(name.value, str): add(name.value, where)
                 else: warnings.add(f"{where}: dynamic permission name; declare it in android.permissions")
+            if target in ("zkite.audio.play", "zkite.video.play"):
+                src = node.args[0] if node.args else next((k.value for k in node.keywords if k.arg == "source"), None)
+                if isinstance(src, ast.Constant) and isinstance(src.value, str):
+                    if src.value.startswith(("https://", "http://")): add("INTERNET", where)
+                elif src is not None:
+                    add("INTERNET", where + " dynamic media source")
             if target == "zkite.Image":
                 src = next((k.value for k in node.keywords if k.arg == "src"), None)
                 if isinstance(src, ast.Constant) and isinstance(src.value, str):

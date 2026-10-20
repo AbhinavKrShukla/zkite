@@ -36,6 +36,7 @@ fn build_test_aab(package: &str) -> Vec<u8> {
         target_sdk: 34,
             activity: APPSHELL_ACTIVITY.into(),
             permissions: vec!["android.permission.CAMERA".into(), "android.permission.RECORD_AUDIO".into(), "android.permission.VIBRATE".into()],
+            deep_links: Vec::new(),
     };
     let manifest = android_manifest(&id);
     let resources = vec![

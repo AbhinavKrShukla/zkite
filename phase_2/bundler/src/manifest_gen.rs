@@ -41,6 +41,29 @@ pub struct AppIdentity {
     /// The permission and its consumer stay absent *together* by default; an app that
     /// wants one now says so.
     pub permissions: Vec<String>,
+    pub deep_links: Vec<DeepLink>,
+}
+
+/// One filter per registration prevents Android merging unrelated schemes/hosts.
+#[derive(Clone, Debug)]
+pub struct DeepLink {
+    pub scheme: String,
+    pub host: String,
+    pub path_prefix: Option<String>,
+    pub auto_verify: bool,
+}
+
+fn link_filters(links: &[DeepLink]) -> String {
+    links.iter().map(|link| format!(
+        r#"            <intent-filter android:autoVerify="{}">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="{}" android:host="{}"{} />
+            </intent-filter>"#,
+        link.auto_verify, xml_escape(&link.scheme), xml_escape(&link.host),
+        link.path_prefix.as_ref().map(|p| format!(r#" android:pathPrefix="{}""#, xml_escape(p))).unwrap_or_default()
+    )).collect::<Vec<_>>().join("\n")
 }
 
 /// `INTERNET` -> `android.permission.INTERNET`; anything already qualified (contains
@@ -292,13 +315,15 @@ pub fn android_manifest(id: &AppIdentity) -> Vec<u8> {
             android:authorities="{package}.zkite.files"
             android:exported="false" android:grantUriPermissions="true" />
         <activity
-            android:name="{activity}"
             android:label="@string/app_name"
-            android:exported="true">
+            android:name="{activity}"
+            android:exported="true"
+            {launch_mode}>
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+{deep_links}
         </activity>
     </application>
 </manifest>"#,
@@ -308,7 +333,10 @@ pub fn android_manifest(id: &AppIdentity) -> Vec<u8> {
         min_sdk = id.min_sdk,
         target_sdk = id.target_sdk,
         activity = id.activity,
+        // pack encodes enum names as strings; Android requires the integer (2 = singleTask).
+        launch_mode = if id.deep_links.is_empty() { "" } else { "android:launchMode=\"2\"" },
         permissions = uses_permissions(&id.permissions),
+        deep_links = link_filters(&id.deep_links),
     )
     .into_bytes()
 }
@@ -350,6 +378,21 @@ fn xml_escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn links_are_separate_escaped_filters_with_numeric_launch_mode() {
+        let mut id = AppIdentity { package: "org.example.links".into(), label: "Links".into(), version_code: 1,
+            version_name: "1".into(), min_sdk: 26, target_sdk: 36, activity: NATIVESHELL_ACTIVITY.into(), permissions: vec![],
+            deep_links: vec![DeepLink { scheme: "demo".into(), host: "open".into(), path_prefix: Some("/a&b".into()), auto_verify: false },
+                DeepLink { scheme: "https".into(), host: "example.org".into(), path_prefix: None, auto_verify: true }] };
+        let xml = String::from_utf8(android_manifest(&id)).unwrap();
+        assert!(xml.contains("android:launchMode=\"2\""));
+        assert_eq!(xml.matches("android.intent.action.VIEW").count(), 2);
+        assert!(xml.contains("/a&amp;b"));
+        assert!(xml.contains("android:autoVerify=\"true\""));
+        id.deep_links.clear();
+        assert!(!String::from_utf8(android_manifest(&id)).unwrap().contains("launchMode"));
+    }
 
     #[test]
     fn placeholder_package_sanitizes_and_lowercases() {
@@ -469,6 +512,7 @@ mod tests {
             target_sdk: 34,
             activity: APPSHELL_ACTIVITY.into(),
             permissions: Vec::new(),
+            deep_links: Vec::new(),
         };
         assert_eq!(id.version_code, 424);
         let xml = String::from_utf8(android_manifest(&id)).unwrap();
@@ -491,6 +535,7 @@ mod tests {
             target_sdk: 34,
             activity: APPSHELL_ACTIVITY.into(),
             permissions: Vec::new(),
+            deep_links: Vec::new(),
         };
         let xml = String::from_utf8(android_manifest(&id)).unwrap();
         assert!(xml.contains(r#"package="com.example.myapp""#));
@@ -513,6 +558,7 @@ mod tests {
             target_sdk: 34,
             activity: APPSHELL_ACTIVITY.into(),
             permissions: Vec::new(),
+            deep_links: Vec::new(),
         };
 
         let none = String::from_utf8(android_manifest(&base())).unwrap();
@@ -580,6 +626,7 @@ mod tests {
             target_sdk: 34,
             activity: activity.into(),
             permissions: Vec::new(),
+            deep_links: Vec::new(),
         };
         let web = String::from_utf8(android_manifest(&identity(APPSHELL_ACTIVITY))).unwrap();
         let native = String::from_utf8(android_manifest(&identity(NATIVESHELL_ACTIVITY))).unwrap();
@@ -612,6 +659,7 @@ mod tests {
             target_sdk: 34,
             activity: APPSHELL_ACTIVITY.into(),
             permissions: Vec::new(),
+            deep_links: Vec::new(),
         };
         let xml = String::from_utf8(android_manifest(&id)).unwrap();
         assert!(xml.contains(r#"android:extractNativeLibs="true""#));
@@ -628,6 +676,7 @@ mod tests {
             target_sdk: 34,
             activity: APPSHELL_ACTIVITY.into(),
             permissions: Vec::new(),
+            deep_links: Vec::new(),
         };
         let xml = String::from_utf8(strings_xml(&id)).unwrap();
         assert!(xml.contains("Bob &amp; Sons &quot;App&quot;"));

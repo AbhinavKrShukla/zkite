@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.1
+
+- Native deep-link registrations in app.json, cold/warm delivery, URL construction and store-aware listeners.
+- Persistent Device Lab audio (removed its two-second stop), transient audio-focus recovery and ducking.
+- Native video playback with title-free configurable overlays, fullscreen/Back restoration, fit/bounds, seek, volume, speed and looping.
+- Composable Python media controls and cancellable state watchers.
+- Correct PyPI source link: https://github.com/AbhinavKrShukla/zkite.
+
+
 ## 1.2.0 — device services
 
 - Async event handlers now execute on an owned event loop, surface errors, and cancel

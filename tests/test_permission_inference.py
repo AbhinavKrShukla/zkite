@@ -40,6 +40,11 @@ class Permissions(unittest.TestCase):
         result = self.infer('from zkite import Image\nImage("",src="https://example.com/a.jpg")\nimport requests as r\nr.get("https://example.com")')
         self.assertEqual(result['permissions'], ['INTERNET'])
 
+    def test_media_permissions_distinguish_local_remote_and_dynamic(self):
+        self.assertEqual(self.infer('from zkite import audio,video\naudio.play("assets/a.mp3")\nvideo.play("content://media/42")')['permissions'], [])
+        self.assertEqual(self.infer('from zkite.video import play as v\nv("https://example.com/a.mp4")')['permissions'], ['INTERNET'])
+        self.assertEqual(self.infer('from zkite import audio\naudio.play(source=url)')['permissions'], ['INTERNET'])
+
     def test_dynamic_code_reports_limits(self):
         result = self.infer('from zkite import permissions\npermissions.ask(variable)\nexec(code)')
         self.assertEqual(len(result['warnings']), 2)

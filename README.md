@@ -1,4 +1,4 @@
-> **ZKite 1.2.0:** device services and automatic `app.json` permission inference
+> **ZKite 1.2.1:** device services and automatic `app.json` permission inference
 > are included. See [the API guide](docs/device-services.md) and
 > [release status](docs/status.md).
 
@@ -109,11 +109,11 @@ Install into an isolated Python 3.14 virtual environment:
 ```bash
 # Linux / macOS
 python3.14 -m venv .venv && source .venv/bin/activate
-pip install zkite==1.2.0
+pip install zkite==1.2.1
 
 # Windows (PowerShell)
 py -3.14 -m venv .venv; .\.venv\Scripts\Activate.ps1
-pip install zkite==1.2.0
+pip install zkite==1.2.1
 ```
 
 ### Using uv
@@ -123,7 +123,7 @@ start with a bare uv project and then add ZKite:
 
 ```bash
 uv init --bare
-uv add zkite==1.2.0
+uv add zkite==1.2.1
 uv run zkite new myapp .
 uv run zkite dev
 ```

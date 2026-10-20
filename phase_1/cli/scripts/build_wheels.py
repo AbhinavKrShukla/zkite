@@ -37,19 +37,19 @@ PAYLOAD_DIR_NAME = "zkite-payload"
 def description(args) -> str:
     """A valid project description for package indexes, shared by the wheel set."""
     return (
-        "Project-URL: Source, https://github.com/AbhinavKrShukla/kite-v1\n"
+        "Project-URL: Source, https://github.com/AbhinavKrShukla/zkite\n"
         "Description-Content-Type: text/markdown\n\n"
         "# ZKite\n\n"
         "Build native Android applications in Python with reactive widgets, state, "
         "hot reload, standalone APK/AAB packaging, device services, and automatic "
-        "Android permission inference.\n\n"
+        "Android permission inference, deep links, and customizable audio/video playback.\n\n"
         f"Install the complete framework with `python -m pip install {args.cli_name}`. "
         "Use CPython 3.14 and Android platform-tools (adb). The distribution supplies "
         "prebuilt Android runtimes; application authors do not need Rust or the Android NDK.\n\n"
         "Commands are `zkite new hello`, `zkite dev`, `zkite run`, and `zkite build apk`. "
         "Python applications import `zkite`. The native renderer is the default.\n\n"
-        "See Documentation.md, PRODUCTION_READINESS.md, "
-        "and PUBLISHING.md in the [source repository](https://github.com/AbhinavKrShukla/kite-v1) "
+        "See Documentation.md, Documentation-detailed.md, "
+        "and PUBLISHING.md in the [source repository](https://github.com/AbhinavKrShukla/zkite) "
         "for supported features and release checks.\n"
     )
 
@@ -301,7 +301,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--payload", required=True, help="a directory from stage_payload.sh")
     ap.add_argument("--out", required=True, help="where to write the .whl files")
-    ap.add_argument("--version", default="1.2.0")
+    ap.add_argument("--version", default="1.2.1")
     # Local candidate names. Public release requires ownership of all three names.
     ap.add_argument("--payload-name", default="zkite-payload")
     ap.add_argument("--cli-name", default="zkite")

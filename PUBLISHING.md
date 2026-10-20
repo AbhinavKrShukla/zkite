@@ -1,28 +1,31 @@
 # Publishing ZKite to PyPI
 
-The current prepared release is **1.2.0**, following the published **1.1.2**.
+The current prepared release is **1.2.1**, following **1.2.0**.
 Android builds require CPython 3.14.
 
-## Prepared upload folder: `publish-dist/1.2.0/`
+## Prepared upload folder: `publish-dist/1.2.1/`
 
 This folder contains four wheels: the Linux x86_64 (manylinux 2.28) CLI, Windows
-x86_64 CLI, shared `zkite-framework`, and shared `zkite-payload`. All use 1.2.0.
+x86_64 CLI, shared `zkite-framework`, and shared `zkite-payload`. All use 1.2.1.
 Upload all four wheels together. Older files directly under `publish-dist/` belong
 to 1.0.0 and must not be included in this upload.
 
 From the repository root:
 
 ```bash
-uvx twine check --strict publish-dist/1.2.0/*.whl
+uvx twine check --strict publish-dist/1.2.1/*.whl
 # Optional TestPyPI rehearsal, using its separate account/token:
-uvx twine upload --repository testpypi publish-dist/1.2.0/*.whl
+uvx twine upload --repository testpypi publish-dist/1.2.1/*.whl
 # Real PyPI, when ready; enter your API token at Twine's prompt:
-uvx twine upload --username __token__ publish-dist/1.2.0/*.whl
+uvx twine upload --username __token__ publish-dist/1.2.1/*.whl
 ```
+
+The 1.2.1 wheels update both PyPI’s Source button and description link to
+`https://github.com/AbhinavKrShukla/zkite`; the live index changes after upload.
 
 Do not upload README.md, MANIFEST.json, SHA256SUMS, or application APKs/AABs.
 The manifest and checksums record the prepared wheel set; validation logs are in
-`release/validation-1.2.0/`. See [release notes](CHANGELOG.md).
+`release/validation-1.2.1/`. See [release notes](CHANGELOG.md).
 
 Both platform wheels were installed into fresh environments and used to build
 an APK outside the checkout. Windows was tested under Wine; native Windows
@@ -32,7 +35,7 @@ For local installation before upload:
 
 ```bash
 python3.14 -m venv /tmp/zkite-install-check
-/tmp/zkite-install-check/bin/python -m pip install --no-index --find-links publish-dist/1.2.0 zkite==1.2.0
+/tmp/zkite-install-check/bin/python -m pip install --no-index --find-links publish-dist/1.2.1 zkite==1.2.1
 ```
 
 ## 1. Settle names, ownership and license
@@ -45,8 +48,7 @@ The release consists of three distributions at the **same version**:
 | `zkite-framework` | Python API, imported as `zkite`. |
 | `zkite-payload` | Host-independent prebuilt Android runtimes, Python and Dev Shells. |
 
-The command and Python import are both `zkite`. The previous published release
-is 1.1.1. Keep the CLI, framework and payload distribution versions identical:
+The command and Python import are both `zkite`. The previous release is 1.2.0. Keep the CLI, framework and payload distribution versions identical:
 the CLI requires exact matching framework and payload versions.
 The old `kite` and `kitecli` distribution names belong to unrelated projects.
 
@@ -117,7 +119,7 @@ for the generic development shell; developers choose their own app signing keys.
 Push the reviewed source to your repository, then manually run the
 **Build installable native candidates** workflow in
 `.github/workflows/release-candidate.yml`. Enter a new version such as
-`1.2.0`; use the identical version for every artifact in the release.
+`1.2.1`; use the identical version for every artifact in the release.
 
 The workflow:
 
@@ -130,7 +132,7 @@ The workflow:
 7. Uploads workflow artifacts. **It does not publish to an index.**
 
 Download the wheel artifacts and collect one copy of each wheel in a clean
-directory, for example `publish-dist/1.2.0/`. Take the framework and payload wheels from
+directory, for example `publish-dist/1.2.1/`. Take the framework and payload wheels from
 the Linux job and one CLI wheel from each host job. Desktop jobs also produce
 framework/payload copies for their installation tests; do not upload duplicates.
 The full workflow also produces an Apple-silicon CLI wheel. The local publish set
@@ -138,7 +140,7 @@ documented above contains the two supported host CLI wheels plus one framework a
 one payload wheel.
 
 Do not upload the local `linux_x86_64` wheel: PyPI needs the compatible manylinux
-artifact from the container build. Changing a filename or passing `--platform`
+artifact from a glibc-baseline build checked with auditwheel. Changing a filename or passing `--platform`
 alone does not make a binary compatible with that platform. Windows ARM and Intel
 macOS are outside this release's build matrix.
 
@@ -153,7 +155,7 @@ Use a separate publishing environment:
 python3.14 -m venv .publish-venv
 . .publish-venv/bin/activate
 python -m pip install --upgrade pip twine
-python -m twine check --strict publish-dist/1.2.0/*.whl
+python -m twine check --strict publish-dist/1.2.1/*.whl
 ```
 
 On Windows, create the environment with `py -3.14 -m venv .publish-venv` and use
@@ -162,7 +164,7 @@ On Windows, create the environment with `py -3.14 -m venv .publish-venv` and use
 Install the collected wheels on clean machines before uploading:
 
 ```bash
-python -m pip install --no-index --find-links publish-dist/1.2.0 "zkite==1.2.0"
+python -m pip install --no-index --find-links publish-dist/1.2.1 "zkite==1.2.1"
 python -c "from zkite import App, SystemBars, Text, store"
 zkite doctor
 ```
@@ -186,13 +188,13 @@ Create a TestPyPI account and use a TestPyPI API token. Let Twine prompt for it;
 do not put tokens into source files or terminal command arguments.
 
 ```bash
-python -m twine upload --repository testpypi publish-dist/1.2.0/*.whl
+python -m twine upload --repository testpypi publish-dist/1.2.1/*.whl
 ```
 
 Test from a fresh CPython 3.14 venv using **only** TestPyPI for this check:
 
 ```bash
-python -m pip install --index-url https://test.pypi.org/simple/ "zkite==1.2.0"
+python -m pip install --index-url https://test.pypi.org/simple/ "zkite==1.2.1"
 zkite new test_install
 cd test_install
 zkite build apk --abi arm64-v8a
@@ -209,13 +211,13 @@ After the previous checks pass, upload those same reviewed artifacts using your
 real PyPI credentials:
 
 ```bash
-python -m twine upload --username __token__ publish-dist/1.2.0/*.whl
+python -m twine upload --username __token__ publish-dist/1.2.1/*.whl
 ```
 
 Then verify from a clean environment:
 
 ```bash
-python -m pip install --index-url https://pypi.org/simple/ "zkite==1.2.0"
+python -m pip install --index-url https://pypi.org/simple/ "zkite==1.2.1"
 zkite new hello
 cd hello
 zkite run

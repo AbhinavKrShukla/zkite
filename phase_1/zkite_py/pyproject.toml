@@ -1,10 +1,14 @@
 [project]
 name = "zkite-framework"
-version = "1.2.0"
+version = "1.2.1"
 license = "MIT"
-description = "Zero-boilerplate Python framework for Android — pure-Python widget/store/reload core (phase 1)."
+description = "Native Android apps in Python with reactive UI, deep links, and customizable media playback."
 requires-python = ">=3.10"
 dependencies = []
+
+[project.urls]
+Source = "https://github.com/AbhinavKrShukla/zkite"
+Documentation = "https://github.com/AbhinavKrShukla/zkite/blob/main/Documentation.md"
 
 [build-system]
 requires = ["hatchling"]

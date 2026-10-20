@@ -1,0 +1,11 @@
+{
+  "name": "media-player",
+  "version": "1.2.1",
+  "backend": "native",
+  "android": {
+    "package": "dev.zkite.mediademo",
+    "label": "ZKite Media Player",
+    "version_code": 121,
+    "deep_links": [{"scheme": "zkitemedia", "host": "open", "path_prefix": "/"}]
+  }
+}
